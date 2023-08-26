@@ -1,11 +1,21 @@
 mod acpi {
     use std::process::Command;
 
+    #[derive(Debug)]
+    pub enum Error {
+        TimeRemain,
+        ParseTimeRemain,
+        Exec,
+        BatteryId,
+        ParseBatteryId,
+        ChargeStatus,
+        ParsePercent,
+    }
+
     pub enum ChargeStatus {
         Discharging { time_remain: chrono::NaiveTime },
         Charging { time_remain: chrono::NaiveTime },
         NotCharging,
-        Unknown,
     }
 
     pub struct Data {
@@ -38,12 +48,11 @@ mod acpi {
                     )
                 }
                 ChargeStatus::NotCharging => write!(f, "{}", front("Not Charging")),
-                ChargeStatus::Unknown => write!(f, "Battery Info Unknown"),
             }
         }
     }
 
-    pub fn call() -> Option<Data> {
+    pub fn call() -> Result<Data, Error> {
         let output = Command::new("acpi")
             .arg("-b")
             .output()
@@ -61,44 +70,64 @@ mod acpi {
                 }
             });
 
-            let battery_id = id_status.next()?.parse::<i32>().ok()?;
-            let status_string = id_status.next()?;
-            let percent = data[1].replace("%", "").parse::<u32>().ok()?;
+            let battery_id = match id_status.next() {
+                Some(id) => match id.parse::<i32>() {
+                    Ok(o) => o,
+                    Err(_) => return Err(Error::ParseBatteryId),
+                },
+                None => return Err(Error::BatteryId),
+            };
+
+            let status_string = match id_status.next() {
+                Some(o) => o,
+                None => return Err(Error::ChargeStatus),
+            };
+
+            let percent = match data[1].replace("%", "").parse::<u32>() {
+                Ok(o) => o,
+                Err(_) => return Err(Error::ParsePercent),
+            };
+
             let mut remaining_time = None;
 
             if status_string != "Not Charging" {
                 let remaining_time_str = Some(data[2].split(' ').collect::<Vec<&str>>()[0]);
 
-                remaining_time =
-                    Some(chrono::NaiveTime::parse_from_str(remaining_time_str?, "%H:%M:%S").ok()?);
+                remaining_time = Some(
+                    match chrono::NaiveTime::parse_from_str(remaining_time_str.unwrap(), "%H:%M:%S")
+                    {
+                        Ok(o) => o,
+                        Err(_) => return Err(Error::ParseTimeRemain),
+                    },
+                );
             }
 
             let status = match status_string.trim() {
                 "Charging" => ChargeStatus::Charging {
-                    time_remain: remaining_time?,
+                    time_remain: remaining_time.unwrap(),
                 },
                 "Discharging" => ChargeStatus::Discharging {
-                    time_remain: remaining_time?,
+                    time_remain: remaining_time.unwrap(),
                 },
                 "Not charging" => ChargeStatus::NotCharging,
-                _ => ChargeStatus::Unknown,
+                _ => return Err(Error::TimeRemain),
             };
 
-            Some(Data {
+            Ok(Data {
                 output: out.to_string(),
                 battery_id,
                 percent,
                 status,
             })
         } else {
-            None
+            Err(Error::Exec)
         }
     }
 }
 
 fn main() {
     match acpi::call() {
-        Some(e) => println!("acpi: {}", e),
-        None => return,
+        Ok(o) => println!("acpi:{}", o),
+        Err(_) => println!("Error!"),
     };
 }
