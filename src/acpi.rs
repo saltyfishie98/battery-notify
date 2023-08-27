@@ -1,4 +1,8 @@
+use std::io::Write;
 use std::process::Command;
+
+const OLD_ACPI_RES: &str =
+    "/home/saltyfishie/.config/waybar/scripts/battery-notify/temp/old_acpi_res.txt";
 
 #[derive(Debug)]
 pub enum ParseError {
@@ -51,7 +55,7 @@ impl std::fmt::Display for Data {
     }
 }
 
-pub fn parse(res: Option<String>) -> Result<Data, ParseError> {
+pub fn parse(res: &Option<String>) -> Result<Data, ParseError> {
     let res_str = match res {
         Some(out) => out,
         None => return Err(ParseError::ParseInput),
@@ -115,6 +119,31 @@ pub fn parse(res: Option<String>) -> Result<Data, ParseError> {
         percent,
         status,
     })
+}
+
+pub fn log_to_file(opt_data: &Option<String>) -> std::io::Result<()> {
+    let create_file = std::fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(OLD_ACPI_RES);
+
+    let mut file = match create_file {
+        Ok(f) => f,
+        Err(_) => std::fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .open(OLD_ACPI_RES)?,
+    };
+
+    let data = opt_data.as_ref().ok_or(std::io::ErrorKind::InvalidData)?;
+
+    file.write_all(data.as_bytes())?;
+    file.flush()?;
+    Ok(())
+}
+
+pub fn from_file() -> Option<String> {
+    Some(std::fs::read_to_string(OLD_ACPI_RES).ok()?)
 }
 
 pub fn call() -> Option<String> {
