@@ -17,8 +17,8 @@ pub enum ParseError {
 
 #[derive(Debug, PartialEq)]
 pub enum ChargeStatus {
-    Discharging { time_remain: chrono::NaiveTime },
-    Charging { time_remain: chrono::NaiveTime },
+    Discharging,
+    Charging,
     NotCharging,
 }
 
@@ -28,6 +28,7 @@ pub struct Data {
     pub battery_id: i32,
     pub percent: u32,
     pub status: ChargeStatus,
+    pub time_remain: chrono::NaiveTime,
 }
 
 impl std::fmt::Display for Data {
@@ -40,16 +41,16 @@ impl std::fmt::Display for Data {
         };
 
         match self.status {
-            ChargeStatus::Discharging { time_remain } => write!(
+            ChargeStatus::Discharging => write!(
                 formatter,
                 "{}",
-                front(format!("Discharging ({})", time_remain).as_str())
+                front(format!("Discharging ({})", self.time_remain).as_str())
             ),
-            ChargeStatus::Charging { time_remain } => {
+            ChargeStatus::Charging => {
                 write!(
                     formatter,
                     "{}",
-                    front(format!("Charging ({})", time_remain).as_str())
+                    front(format!("Charging ({})", self.time_remain).as_str())
                 )
             }
             ChargeStatus::NotCharging => write!(formatter, "{}", front("Not Charging")),
@@ -107,21 +108,20 @@ pub fn parse(res: &Option<String>) -> Result<Data, ParseError> {
     }
 
     let status = match status_string.trim() {
-        "Charging" => ChargeStatus::Charging {
-            time_remain: remaining_time.unwrap(),
-        },
-        "Discharging" => ChargeStatus::Discharging {
-            time_remain: remaining_time.unwrap(),
-        },
+        "Charging" => ChargeStatus::Charging,
+        "Discharging" => ChargeStatus::Discharging,
         NOT_CHARGING => ChargeStatus::NotCharging,
         _ => return Err(ParseError::ParseTimeRemain),
     };
+
+    let time_remain = remaining_time.unwrap();
 
     Ok(Data {
         output: res_str.to_string(),
         battery_id,
         percent,
         status,
+        time_remain,
     })
 }
 

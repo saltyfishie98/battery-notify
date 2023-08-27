@@ -25,7 +25,10 @@ fn main() {
         }
     };
 
-    if current.percent != old.percent && current.percent <= 20 {
+    if current.percent != old.percent
+        && current.percent <= 20
+        && current.status == acpi::ChargeStatus::Discharging
+    {
         match acpi::log_to_file(&res) {
             Ok(_) => (),
             Err(_) => log::error!("acpi.rs resource failure!"),
