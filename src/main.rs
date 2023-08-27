@@ -1,8 +1,9 @@
 mod acpi;
 
 fn main() {
-    match acpi::call() {
-        Ok(o) => println!("acpi:{}", o),
-        Err(_) => println!("Error!"),
-    };
+    let res = acpi::call();
+    match acpi::parse(res) {
+        Ok(out) => println!("{}", out),
+        Err(_) => todo!(),
+    }
 }
