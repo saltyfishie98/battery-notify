@@ -15,12 +15,14 @@ pub enum ParseError {
     BatteryIdNotI32,
 }
 
+#[derive(Debug, PartialEq)]
 pub enum ChargeStatus {
     Discharging { time_remain: chrono::NaiveTime },
     Charging { time_remain: chrono::NaiveTime },
     NotCharging,
 }
 
+#[derive(Debug, PartialEq)]
 pub struct Data {
     pub output: String,
     pub battery_id: i32,
@@ -80,7 +82,7 @@ pub fn parse(res: &Option<String>) -> Result<Data, ParseError> {
     };
 
     let status_string = match id_status.next() {
-        Some(o) => o,
+        Some(o) => o.trim().to_string(),
         None => return Err(ParseError::ParseChargeStatus),
     };
 
@@ -91,7 +93,9 @@ pub fn parse(res: &Option<String>) -> Result<Data, ParseError> {
 
     let mut remaining_time = None;
 
-    if status_string != "Not Charging" {
+    const NOT_CHARGING: &str = "Not charging";
+
+    if status_string != NOT_CHARGING {
         let remaining_time_str = Some(data[2].split(' ').collect::<Vec<&str>>()[0]);
 
         remaining_time = Some(
@@ -109,7 +113,7 @@ pub fn parse(res: &Option<String>) -> Result<Data, ParseError> {
         "Discharging" => ChargeStatus::Discharging {
             time_remain: remaining_time.unwrap(),
         },
-        "Not charging" => ChargeStatus::NotCharging,
+        NOT_CHARGING => ChargeStatus::NotCharging,
         _ => return Err(ParseError::ParseTimeRemain),
     };
 
@@ -156,5 +160,62 @@ pub fn call() -> Option<String> {
         Some(String::from_utf8_lossy(&output.stdout).to_string())
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const BATTERY_ID: i32 = 0;
+    const CHARGHING_STR: &str = "Battery 0: Charging, 99%, 00:01:15 until charged";
+    const DISCHARGING_STR: &str = "Battery 0: Discharging, 97%, 02:20:01 remaining";
+    const NOT_CHARGING_STR: &str = "Battery 0: Not charging, 100%";
+
+    #[test]
+    fn parse_charging() {
+        let charging = parse(&Some(CHARGHING_STR.to_string())).unwrap();
+
+        assert_eq!(
+            charging,
+            Data {
+                output: CHARGHING_STR.to_string(),
+                battery_id: BATTERY_ID,
+                percent: 99,
+                status: ChargeStatus::Charging {
+                    time_remain: chrono::NaiveTime::parse_from_str("00:01:15", "%H:%M:%S").unwrap()
+                }
+            }
+        )
+    }
+
+    #[test]
+    fn parse_discharging() {
+        let discharging = parse(&Some(DISCHARGING_STR.to_string())).unwrap();
+        assert_eq!(
+            discharging,
+            Data {
+                output: DISCHARGING_STR.to_string(),
+                battery_id: BATTERY_ID,
+                percent: 97,
+                status: ChargeStatus::Discharging {
+                    time_remain: chrono::NaiveTime::parse_from_str("02:20:01", "%H:%M:%S").unwrap()
+                }
+            }
+        )
+    }
+
+    #[test]
+    fn parse_not_charging() {
+        let not_charging = parse(&Some(NOT_CHARGING_STR.to_string())).unwrap();
+        assert_eq!(
+            not_charging,
+            Data {
+                output: NOT_CHARGING_STR.to_string(),
+                battery_id: BATTERY_ID,
+                percent: 100,
+                status: ChargeStatus::NotCharging,
+            }
+        )
     }
 }
