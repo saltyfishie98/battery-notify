@@ -1,13 +1,9 @@
 use std::io::Write;
 use std::process::Command;
 
-const OLD_ACPI_RES: &str =
-    "/home/saltyfishie/.config/waybar/scripts/battery-notify/temp/old_acpi_res.txt";
-
 #[derive(Debug)]
 pub enum ParseError {
     ParseTimeRemain,
-    ParseInput,
     ParseBatteryId,
     ParseChargeStatus,
     ParsePercent,
@@ -15,11 +11,36 @@ pub enum ParseError {
     BatteryIdNotI32,
 }
 
-#[derive(Debug, PartialEq)]
+mod helper {
+    pub fn cache_path() -> String {
+        let path = format!(
+            "{}/.cache/battery-notify/cache.txt",
+            std::env::var("HOME").unwrap()
+        );
+        log::debug!("cache path: {}", path);
+        path
+    }
+}
+
+#[derive(Debug)]
 pub enum ChargeStatus {
-    Discharging,
-    Charging,
+    Discharging {
+        time_remain: Option<chrono::NaiveTime>,
+    },
+    Charging {
+        time_remain: Option<chrono::NaiveTime>,
+    },
     NotCharging,
+}
+
+impl PartialEq for ChargeStatus {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Discharging { time_remain: _ }, Self::Discharging { time_remain: _ }) => true,
+            (Self::Charging { time_remain: _ }, Self::Charging { time_remain: _ }) => true,
+            _ => core::mem::discriminant(self) == core::mem::discriminant(other),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -28,7 +49,6 @@ pub struct Data {
     pub battery_id: i32,
     pub percent: u32,
     pub status: ChargeStatus,
-    pub time_remain: chrono::NaiveTime,
 }
 
 impl std::fmt::Display for Data {
@@ -41,16 +61,28 @@ impl std::fmt::Display for Data {
         };
 
         match self.status {
-            ChargeStatus::Discharging => write!(
-                formatter,
-                "{}",
-                front(format!("Discharging ({})", self.time_remain).as_str())
-            ),
-            ChargeStatus::Charging => {
+            ChargeStatus::Discharging { time_remain } => {
+                let time_remain_str: String = match time_remain {
+                    Some(out) => format!("{}", out),
+                    None => "unknown".to_string(),
+                };
+
                 write!(
                     formatter,
                     "{}",
-                    front(format!("Charging ({})", self.time_remain).as_str())
+                    front(format!("Discharging ( time remaining: {} )", time_remain_str).as_str())
+                )
+            }
+            ChargeStatus::Charging { time_remain } => {
+                let time_remain_str: String = match time_remain {
+                    Some(out) => format!("{}", out),
+                    None => "unknown".to_string(),
+                };
+
+                write!(
+                    formatter,
+                    "{}",
+                    front(format!("Charging ( time remaining: {} )", time_remain_str).as_str())
                 )
             }
             ChargeStatus::NotCharging => write!(formatter, "{}", front("Not Charging")),
@@ -58,13 +90,8 @@ impl std::fmt::Display for Data {
     }
 }
 
-pub fn parse(res: &Option<String>) -> Result<Data, ParseError> {
-    let res_str = match res {
-        Some(out) => out,
-        None => return Err(ParseError::ParseInput),
-    };
-
-    let data = res_str.split(',').map(|s| s.trim()).collect::<Vec<&str>>();
+pub fn parse(res: &str) -> Result<Data, ParseError> {
+    let data = res.split(',').map(|s| s.trim()).collect::<Vec<&str>>();
 
     let mut id_status = data[0].split(':').map(|s| {
         if s.contains("Battery ") {
@@ -108,38 +135,46 @@ pub fn parse(res: &Option<String>) -> Result<Data, ParseError> {
     }
 
     let status = match status_string.trim() {
-        "Charging" => ChargeStatus::Charging,
-        "Discharging" => ChargeStatus::Discharging,
+        "Charging" => ChargeStatus::Charging {
+            time_remain: remaining_time,
+        },
+        "Discharging" => ChargeStatus::Discharging {
+            time_remain: remaining_time,
+        },
         NOT_CHARGING => ChargeStatus::NotCharging,
         _ => return Err(ParseError::ParseTimeRemain),
     };
 
-    let time_remain = remaining_time.unwrap();
-
     Ok(Data {
-        output: res_str.to_string(),
+        output: res.to_string(),
         battery_id,
         percent,
         status,
-        time_remain,
     })
 }
 
-pub fn log_to_file(opt_data: &Option<String>) -> std::io::Result<()> {
+pub fn log_to_file(data: &str) -> std::io::Result<()> {
+    let path_str = helper::cache_path();
+    let path = std::path::Path::new(path_str.as_str());
+
+    if !path.exists() {
+        let prefix = path.parent().unwrap();
+        log::debug!("{}", prefix.to_str().unwrap());
+        std::fs::create_dir_all(prefix)?;
+    }
+
     let create_file = std::fs::OpenOptions::new()
         .create_new(true)
         .write(true)
-        .open(OLD_ACPI_RES);
+        .open(path);
 
     let mut file = match create_file {
         Ok(f) => f,
         Err(_) => std::fs::OpenOptions::new()
             .write(true)
             .truncate(true)
-            .open(OLD_ACPI_RES)?,
+            .open(path)?,
     };
-
-    let data = opt_data.as_ref().ok_or(std::io::ErrorKind::InvalidData)?;
 
     file.write_all(data.as_bytes())?;
     file.flush()?;
@@ -147,14 +182,26 @@ pub fn log_to_file(opt_data: &Option<String>) -> std::io::Result<()> {
 }
 
 pub fn from_file() -> Option<String> {
-    Some(std::fs::read_to_string(OLD_ACPI_RES).ok()?)
+    let path_str = helper::cache_path();
+    let path = std::path::Path::new(path_str.as_str());
+
+    match std::fs::metadata(path) {
+        Ok(_) => (),
+        Err(e) => log::warn!("{}", e),
+    }
+    Some(std::fs::read_to_string(path).ok()?)
 }
 
 pub fn call() -> Option<String> {
-    let output = Command::new("acpi")
-        .arg("-b")
-        .output()
-        .expect("Failed to execute command");
+    let output_res = Command::new("acpi").arg("-b").output();
+
+    let output = match output_res {
+        Ok(out) => out,
+        Err(_) => {
+            log::error!("\"acpi\" command not found! (is acpi installed?)");
+            panic!();
+        }
+    };
 
     if output.status.success() {
         Some(String::from_utf8_lossy(&output.stdout).to_string())
@@ -173,8 +220,45 @@ mod tests {
     const NOT_CHARGING_STR: &str = "Battery 0: Not charging, 100%";
 
     #[test]
+    fn charge_status_partial_eq_same_time() {
+        let a = ChargeStatus::Charging {
+            time_remain: Some(chrono::NaiveTime::parse_from_str("00:01:15", "%H:%M:%S").unwrap()),
+        };
+
+        let b = ChargeStatus::Charging {
+            time_remain: Some(chrono::NaiveTime::parse_from_str("00:01:15", "%H:%M:%S").unwrap()),
+        };
+
+        assert!(a == b);
+    }
+
+    #[test]
+    fn charge_status_partial_eq_diff_time() {
+        let a = ChargeStatus::Charging {
+            time_remain: Some(chrono::NaiveTime::parse_from_str("00:00:00", "%H:%M:%S").unwrap()),
+        };
+
+        let b = ChargeStatus::Charging {
+            time_remain: Some(chrono::NaiveTime::parse_from_str("00:01:15", "%H:%M:%S").unwrap()),
+        };
+
+        assert!(a == b);
+    }
+
+    #[test]
+    fn charge_status_partial_eq_none() {
+        let a = ChargeStatus::Charging { time_remain: None };
+
+        let b = ChargeStatus::Charging {
+            time_remain: Some(chrono::NaiveTime::parse_from_str("00:01:15", "%H:%M:%S").unwrap()),
+        };
+
+        assert!(a == b);
+    }
+
+    #[test]
     fn parse_charging() {
-        let charging = parse(&Some(CHARGHING_STR.to_string())).unwrap();
+        let charging = parse(CHARGHING_STR).unwrap();
 
         assert_eq!(
             charging,
@@ -183,7 +267,9 @@ mod tests {
                 battery_id: BATTERY_ID,
                 percent: 99,
                 status: ChargeStatus::Charging {
-                    time_remain: chrono::NaiveTime::parse_from_str("00:01:15", "%H:%M:%S").unwrap()
+                    time_remain: Some(
+                        chrono::NaiveTime::parse_from_str("00:01:15", "%H:%M:%S").unwrap()
+                    )
                 }
             }
         )
@@ -191,7 +277,7 @@ mod tests {
 
     #[test]
     fn parse_discharging() {
-        let discharging = parse(&Some(DISCHARGING_STR.to_string())).unwrap();
+        let discharging = parse(DISCHARGING_STR).unwrap();
         assert_eq!(
             discharging,
             Data {
@@ -199,7 +285,9 @@ mod tests {
                 battery_id: BATTERY_ID,
                 percent: 97,
                 status: ChargeStatus::Discharging {
-                    time_remain: chrono::NaiveTime::parse_from_str("02:20:01", "%H:%M:%S").unwrap()
+                    time_remain: Some(
+                        chrono::NaiveTime::parse_from_str("02:20:01", "%H:%M:%S").unwrap()
+                    )
                 }
             }
         )
@@ -207,7 +295,7 @@ mod tests {
 
     #[test]
     fn parse_not_charging() {
-        let not_charging = parse(&Some(NOT_CHARGING_STR.to_string())).unwrap();
+        let not_charging = parse(NOT_CHARGING_STR).unwrap();
         assert_eq!(
             not_charging,
             Data {

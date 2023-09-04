@@ -5,16 +5,25 @@ mod acpi;
 fn main() {
     env_logger::init();
 
-    let res = acpi::call();
+    let res = match acpi::call() {
+        Some(out) => out,
+        None => todo!(),
+    };
 
-    let old_res = acpi::from_file();
+    let old_res = match acpi::from_file() {
+        Some(out) => out,
+        None => {
+            match acpi::log_to_file(&res) {
+                Ok(_) => (),
+                Err(e) => log::error!("{}", e),
+            };
+            res.clone()
+        }
+    };
 
     let old = match acpi::parse(&old_res) {
         Ok(out) => out,
-        Err(_) => {
-            log::error!("Error parsing previous acpi data");
-            return;
-        }
+        Err(_) => todo!(),
     };
 
     let current = match acpi::parse(&res) {
@@ -27,7 +36,7 @@ fn main() {
 
     if current.percent != old.percent
         && current.percent <= 20
-        && current.status == acpi::ChargeStatus::Discharging
+        && current.status == (acpi::ChargeStatus::Discharging { time_remain: None })
     {
         match acpi::log_to_file(&res) {
             Ok(_) => (),
@@ -61,7 +70,7 @@ fn main() {
 
         let mut charging_command = Command::new("notify-send");
 
-        if current.status == acpi::ChargeStatus::Charging {
+        if current.status == (acpi::ChargeStatus::Charging { time_remain: None }) {
             let charging_notify = charging_command
                 .args(["Battery Status Update", "The battery has started charging!"]);
 
@@ -75,7 +84,7 @@ fn main() {
             }
         }
 
-        if current.status == acpi::ChargeStatus::Discharging
+        if current.status == (acpi::ChargeStatus::Discharging { time_remain: None })
             || current.status == acpi::ChargeStatus::NotCharging
         {
             let charging_notify = charging_command

@@ -8,6 +8,9 @@
             "type": "lldb",
             "request": "launch",
             "name": "Debug executable 'battery-notify'",
+            "env": {
+                "RUST_LOG": "debug"
+            },
             "cargo": {
                 "args": [
                     "build",
