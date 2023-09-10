@@ -24,7 +24,6 @@
             },
             "args": [],
             "cwd": "${workspaceFolder}",
-            "console": "internalConsole"
         },
         {
             "type": "lldb",
