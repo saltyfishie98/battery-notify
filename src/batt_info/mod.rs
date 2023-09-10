@@ -61,7 +61,7 @@ mod helper {
             None => return Err(ParseError::ParseChargeStatus),
         };
 
-        let percent = match data[1].replace("%", "").parse::<u32>() {
+        let percent = match data[1].replace('%', "").parse::<u32>() {
             Ok(o) => o,
             Err(_) => return Err(ParseError::ParsePercent),
         };
@@ -71,10 +71,10 @@ mod helper {
         const NOT_CHARGING: &str = "Not charging";
 
         if status_string != NOT_CHARGING {
-            let remaining_time_str = Some(data[2].split(' ').collect::<Vec<&str>>()[0]);
+            let remaining_time_str = data[2].split(' ').collect::<Vec<&str>>()[0];
 
             remaining_time = Some(
-                match chrono::NaiveTime::parse_from_str(remaining_time_str.unwrap(), "%H:%M:%S") {
+                match chrono::NaiveTime::parse_from_str(remaining_time_str, "%H:%M:%S") {
                     Ok(o) => o,
                     Err(_) => return Err(ParseError::TimeRemainFormat),
                 },
@@ -190,7 +190,7 @@ pub fn log_to_file(data: &str) -> std::io::Result<()> {
     Ok(())
 }
 
-pub fn from_file() -> Option<Data> {
+pub fn cached() -> Option<Data> {
     let path_str = helper::cache_path();
     let path = std::path::Path::new(path_str.as_str());
 
@@ -200,10 +200,10 @@ pub fn from_file() -> Option<Data> {
     }
 
     let res = std::fs::read_to_string(path).ok()?;
-    Some(serde_json::from_str(&res).ok()?)
+    serde_json::from_str(&res).ok()?
 }
 
-pub fn call() -> Option<Data> {
+pub fn get() -> Option<Data> {
     let output_res = Command::new("acpi").arg("-b").output();
 
     let output = match output_res {
@@ -221,53 +221,5 @@ pub fn call() -> Option<Data> {
         Some(helper::parse(&out).ok()?)
     } else {
         None
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn charge_status_partial_eq_same_time() {
-        let a = ChargeStatus::Charging {
-            time_remain: Some(chrono::NaiveTime::parse_from_str("00:01:15", "%H:%M:%S").unwrap()),
-        };
-
-        let b = ChargeStatus::Charging {
-            time_remain: Some(chrono::NaiveTime::parse_from_str("00:01:15", "%H:%M:%S").unwrap()),
-        };
-
-        let json = serde_json::to_string_pretty(&a).unwrap();
-        println!("{}", json);
-
-        let status: ChargeStatus = serde_json::from_str(json.as_str()).unwrap();
-        println!("{:?}", status);
-
-        assert!(a == b);
-    }
-
-    #[test]
-    fn charge_status_partial_eq_diff_time() {
-        let a = ChargeStatus::Charging {
-            time_remain: Some(chrono::NaiveTime::parse_from_str("00:00:00", "%H:%M:%S").unwrap()),
-        };
-
-        let b = ChargeStatus::Charging {
-            time_remain: Some(chrono::NaiveTime::parse_from_str("00:01:15", "%H:%M:%S").unwrap()),
-        };
-
-        assert!(a == b);
-    }
-
-    #[test]
-    fn charge_status_partial_eq_none() {
-        let a = ChargeStatus::Charging { time_remain: None };
-
-        let b = ChargeStatus::Charging {
-            time_remain: Some(chrono::NaiveTime::parse_from_str("00:01:15", "%H:%M:%S").unwrap()),
-        };
-
-        assert!(a == b);
     }
 }

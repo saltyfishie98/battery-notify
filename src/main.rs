@@ -1,26 +1,26 @@
 use std::process::Command;
 
-mod acpi;
+mod batt_info;
 
 fn main() {
     env_logger::init();
 
-    let current = match acpi::call() {
+    let current = match batt_info::get() {
         Some(out) => out,
-        None => todo!(),
+        None => panic!(),
     };
 
     let json_str = serde_json::to_string_pretty(&current).unwrap();
 
-    let old = match acpi::from_file() {
+    let old = match batt_info::cached() {
         Some(out) => out,
         None => {
-            match acpi::log_to_file(&json_str) {
+            match batt_info::log_to_file(&json_str) {
                 Ok(_) => (),
                 Err(e) => log::error!("{}", e),
             };
 
-            match acpi::call() {
+            match batt_info::get() {
                 Some(out) => out,
                 None => todo!(),
             }
@@ -29,9 +29,9 @@ fn main() {
 
     if current.percent != old.percent
         && current.percent <= 20
-        && current.status == (acpi::ChargeStatus::Discharging { time_remain: None })
+        && current.status == (batt_info::ChargeStatus::Discharging { time_remain: None })
     {
-        match acpi::log_to_file(&json_str) {
+        match batt_info::log_to_file(&json_str) {
             Ok(_) => (),
             Err(_) => log::error!("acpi.rs resource error!"),
         };
@@ -56,14 +56,14 @@ fn main() {
     }
 
     if current.status != old.status {
-        match acpi::log_to_file(&json_str) {
+        match batt_info::log_to_file(&json_str) {
             Ok(_) => (),
             Err(_) => log::error!("acpi.rs resource error!"),
         };
 
         let mut charging_command = Command::new("notify-send");
 
-        if current.status == (acpi::ChargeStatus::Charging { time_remain: None }) {
+        if current.status == (batt_info::ChargeStatus::Charging { time_remain: None }) {
             let charging_notify = charging_command
                 .args(["Battery Status Update", "The battery has started charging!"]);
 
@@ -77,8 +77,8 @@ fn main() {
             }
         }
 
-        if current.status == (acpi::ChargeStatus::Discharging { time_remain: None })
-            || current.status == acpi::ChargeStatus::NotCharging
+        if current.status == (batt_info::ChargeStatus::Discharging { time_remain: None })
+            || current.status == batt_info::ChargeStatus::NotCharging
         {
             let charging_notify = charging_command
                 .args(["Battery Status Update", "The battery has stopped charging!"]);
