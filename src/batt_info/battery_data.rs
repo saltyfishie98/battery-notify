@@ -1,14 +1,13 @@
 use super::ChargeStatus;
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct Data {
-    pub output: String,
+pub struct BatteryData {
     pub battery_id: i32,
     pub percent: u32,
     pub status: ChargeStatus,
 }
 
-impl std::fmt::Display for Data {
+impl std::fmt::Display for BatteryData {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let front = |status: &str| -> String {
             format!(
@@ -43,6 +42,7 @@ impl std::fmt::Display for Data {
                 )
             }
             ChargeStatus::NotCharging => write!(formatter, "{}", front("Not Charging")),
+            ChargeStatus::Unknown => write!(formatter, "{}", front("Unknown")),
         }
     }
 }

@@ -3,9 +3,24 @@ use std::process::Command;
 mod batt_info;
 
 fn main() {
+    #[cfg(not(debug_assertions))]
+    env_logger::Builder::new()
+        .format(|buf, record| {
+            writeln!(
+                buf,
+                "[{} {}] (battery-notify) - {}",
+                chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+                record.level(),
+                record.args(),
+            )
+        })
+        .filter(None, log::LevelFilter::Trace)
+        .init();
+
+    #[cfg(debug_assertions)]
     env_logger::init();
 
-    let current = match batt_info::get() {
+    let current = match batt_info::get(0) {
         Some(out) => out,
         None => panic!(),
     };
@@ -20,7 +35,7 @@ fn main() {
                 Err(e) => log::error!("{}", e),
             };
 
-            match batt_info::get() {
+            match batt_info::get(0) {
                 Some(out) => out,
                 None => todo!(),
             }

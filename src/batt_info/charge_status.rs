@@ -54,6 +54,7 @@ pub enum ChargeStatus {
         time_remain: Option<chrono::NaiveTime>,
     },
     NotCharging,
+    Unknown,
 }
 
 impl serde::Serialize for ChargeStatus {
@@ -72,7 +73,7 @@ impl serde::Serialize for ChargeStatus {
                     "time_remain",
                     match time_remain {
                         Some(time) => {
-                            time_string = time.to_string();
+                            time_string = time.format(TIME_FMT).to_string();
                             &time_string
                         }
                         None => {
@@ -91,7 +92,7 @@ impl serde::Serialize for ChargeStatus {
                     "time_remain",
                     match time_remain {
                         Some(time) => {
-                            time_string = time.to_string();
+                            time_string = time.format(TIME_FMT).to_string();
                             &time_string
                         }
                         None => {
@@ -105,6 +106,10 @@ impl serde::Serialize for ChargeStatus {
             ChargeStatus::NotCharging => {
                 let state =
                     serializer.serialize_struct_variant("ChargeStatus", 2, "NotCharging", 0)?;
+                state.end()
+            }
+            ChargeStatus::Unknown => {
+                let state = serializer.serialize_struct_variant("ChargeStatus", 3, "Unknown", 0)?;
                 state.end()
             }
         }
@@ -180,10 +185,10 @@ mod tests {
         };
 
         let json = serde_json::to_string_pretty(&a).unwrap();
-        println!("{}", json);
+        log::debug!("{}", json);
 
         let status: ChargeStatus = serde_json::from_str(json.as_str()).unwrap();
-        println!("{:?}", status);
+        log::debug!("{:?}", status);
 
         assert!(a == b);
     }
