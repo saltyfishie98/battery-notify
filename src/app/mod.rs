@@ -153,25 +153,7 @@ impl BatteryNotification {
                 Err(_) => log::error!("acpi.rs resource error!"),
             };
 
-            let mut batt_low_command = Command::new("notify-send");
-
-            let batt_low_notify = batt_low_command.args([
-                "-u",
-                "critical",
-                "-t",
-                "5000",
-                "Battery Low",
-                format!("Battery charge at {}%!", self.current.percent).as_str(),
-            ]);
-
-            match batt_low_notify.status() {
-                Ok(res) => {
-                    if !res.success() {
-                        log::error!("Command failed with exit code: {:?}", res.code());
-                    }
-                }
-                Err(err) => log::error!("Error executing command: {}", err),
-            }
+            self.low_battery_notification();
         }
 
         if self.current.status != self.cached.status {
@@ -180,37 +162,42 @@ impl BatteryNotification {
                 Err(_) => log::error!("acpi.rs resource error!"),
             };
 
-            let mut charging_command = Command::new("notify-send");
-
             if self.current.status == (ChargeStatus::Charging { time_remain: None }) {
-                let charging_notify = charging_command.args([
-                    "-t",
-                    "2000",
-                    "Battery Status Update",
-                    "The battery has started charging!",
-                ]);
-
-                match charging_notify.status() {
-                    Ok(res) => {
-                        if !res.success() {
-                            log::error!("Command failed with exit code: {:?}", res.code());
-                        }
-                    }
-                    Err(err) => log::error!("Error executing command: {}", err),
-                }
+                self.charging_notification();
             }
 
             if self.current.status == (ChargeStatus::Discharging { time_remain: None })
                 || self.current.status == ChargeStatus::NotCharging
             {
-                let charging_notify = charging_command.args([
-                    "-t",
-                    "1500",
-                    "Battery Status Update",
-                    "The battery has stopped charging!",
-                ]);
+                self.stop_charging_notification();
+            }
+        }
+    }
 
-                match charging_notify.status() {
+    pub fn low_battery_notification(&self) {
+        let mut batt_low_command = Command::new("notify-send");
+        let batt_low_notify = batt_low_command.args([
+            "-u",
+            "critical",
+            "-t",
+            "5000",
+            "Battery Low",
+            format!("Battery charge at {}%!", self.current.percent).as_str(),
+        ]);
+
+        let mut batt_low_sound = Command::new("pw-play");
+        let batt_low_sound = batt_low_sound.arg(format!(
+            "{}/.local/share/sounds/big_sur/Ping.wav",
+            std::env::var("HOME").unwrap()
+        ));
+
+        match batt_low_notify.status() {
+            Ok(res) => {
+                if !res.success() {
+                    log::error!("Command failed with exit code: {:?}", res.code());
+                }
+
+                match batt_low_sound.status() {
                     Ok(res) => {
                         if !res.success() {
                             log::error!("Command failed with exit code: {:?}", res.code());
@@ -219,6 +206,75 @@ impl BatteryNotification {
                     Err(err) => log::error!("Error executing command: {}", err),
                 }
             }
+            Err(err) => log::error!("Error executing command: {}", err),
+        }
+    }
+
+    pub fn charging_notification(&self) {
+        let mut charging_command = Command::new("notify-send");
+        let charging_notify = charging_command.args([
+            "-t",
+            "1500",
+            "Battery Status Update",
+            "The battery has started charging!",
+        ]);
+
+        let mut charging_sound = Command::new("pw-play");
+        let charging_sound = charging_sound.arg(format!(
+            "{}/.local/share/sounds/big_sur/Funk.wav",
+            std::env::var("HOME").unwrap()
+        ));
+
+        match charging_notify.status() {
+            Ok(res) => {
+                if !res.success() {
+                    log::error!("Command failed with exit code: {:?}", res.code());
+                }
+
+                match charging_sound.status() {
+                    Ok(res) => {
+                        if !res.success() {
+                            log::error!("Command failed with exit code: {:?}", res.code());
+                        }
+                    }
+                    Err(err) => log::error!("Error executing command: {}", err),
+                }
+            }
+            Err(err) => log::error!("Error executing command: {}", err),
+        }
+    }
+
+    pub fn stop_charging_notification(&self) {
+        let mut charging_command = Command::new("notify-send");
+        let charging_notify = charging_command.args([
+            "-t",
+            "1500",
+            "Battery Status Update",
+            "The battery has stopped charging!",
+        ]);
+
+        let mut charging_sound = Command::new("pw-play");
+        let charging_sound = charging_sound.arg(format!(
+            "{}/.local/share/sounds/big_sur/Bottle.wav",
+            std::env::var("HOME").unwrap()
+        ));
+
+        match charging_notify.status() {
+            Ok(res) => {
+                if !res.success() {
+                    log::error!("Command failed with exit code: {:?}", res.code());
+                }
+
+                match charging_sound.status() {
+                    Ok(res) => {
+                        if !res.success() {
+                            log::error!("Command failed with exit code: {:?}", res.code());
+                        }
+                    }
+                    Err(err) => log::error!("Error executing command: {}", err),
+                }
+            }
+            Err(err) => log::error!("Error executing command: {}", err),
         }
     }
 }
