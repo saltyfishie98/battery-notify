@@ -1,7 +1,11 @@
+mod charge_status;
+mod data;
+
 use std::io::Write;
 use std::process::Command;
 
-use serde::ser::SerializeStructVariant;
+pub use charge_status::ChargeStatus;
+pub use data::Data;
 
 #[derive(Debug)]
 pub enum ParseError {
@@ -21,129 +25,6 @@ mod helper {
         );
         log::debug!("cache path: {}", path);
         path
-    }
-}
-
-#[derive(Debug)]
-pub enum ChargeStatus {
-    Discharging {
-        time_remain: Option<chrono::NaiveTime>,
-    },
-    Charging {
-        time_remain: Option<chrono::NaiveTime>,
-    },
-    NotCharging,
-}
-
-impl serde::Serialize for ChargeStatus {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        #[allow(unused_assignments)]
-        let mut time_string: String = "".to_string();
-
-        match *self {
-            ChargeStatus::Discharging { time_remain } => {
-                let mut state =
-                    serializer.serialize_struct_variant("ChargeStatus", 0, "Discharging", 1)?;
-                state.serialize_field(
-                    "time_remain",
-                    match time_remain {
-                        Some(time) => {
-                            time_string = time.to_string();
-                            &time_string
-                        }
-                        None => {
-                            time_string = "none".to_string();
-                            &time_string
-                        }
-                    },
-                )?;
-                state.end()
-            }
-            ChargeStatus::Charging { time_remain } => {
-                let mut state =
-                    serializer.serialize_struct_variant("ChargeStatus", 1, "Charging", 1)?;
-
-                state.serialize_field(
-                    "time_remain",
-                    match time_remain {
-                        Some(time) => {
-                            time_string = time.to_string();
-                            &time_string
-                        }
-                        None => {
-                            time_string = "none".to_string();
-                            &time_string
-                        }
-                    },
-                )?;
-                state.end()
-            }
-            ChargeStatus::NotCharging => {
-                let state =
-                    serializer.serialize_struct_variant("ChargeStatus", 2, "NotCharging", 0)?;
-                state.end()
-            }
-        }
-    }
-}
-
-impl PartialEq for ChargeStatus {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::Discharging { time_remain: _ }, Self::Discharging { time_remain: _ }) => true,
-            (Self::Charging { time_remain: _ }, Self::Charging { time_remain: _ }) => true,
-            _ => core::mem::discriminant(self) == core::mem::discriminant(other),
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, serde::Serialize)]
-pub struct Data {
-    pub output: String,
-    pub battery_id: i32,
-    pub percent: u32,
-    pub status: ChargeStatus,
-}
-
-impl std::fmt::Display for Data {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let front = |status: &str| -> String {
-            format!(
-                "Battery Info:\n\tid: {}\n\tpercent: {}\n\tstatus: {}",
-                self.battery_id, self.percent, status
-            )
-        };
-
-        match self.status {
-            ChargeStatus::Discharging { time_remain } => {
-                let time_remain_str: String = match time_remain {
-                    Some(out) => format!("{}", out),
-                    None => "unknown".to_string(),
-                };
-
-                write!(
-                    formatter,
-                    "{}",
-                    front(format!("Discharging ( time remaining: {} )", time_remain_str).as_str())
-                )
-            }
-            ChargeStatus::Charging { time_remain } => {
-                let time_remain_str: String = match time_remain {
-                    Some(out) => format!("{}", out),
-                    None => "unknown".to_string(),
-                };
-
-                write!(
-                    formatter,
-                    "{}",
-                    front(format!("Charging ( time remaining: {} )", time_remain_str).as_str())
-                )
-            }
-            ChargeStatus::NotCharging => write!(formatter, "{}", front("Not Charging")),
-        }
     }
 }
 
@@ -286,6 +167,12 @@ mod tests {
             time_remain: Some(chrono::NaiveTime::parse_from_str("00:01:15", "%H:%M:%S").unwrap()),
         };
 
+        let json = serde_json::to_string_pretty(&a).unwrap();
+        println!("{}", json);
+
+        let status: ChargeStatus = serde_json::from_str(json.as_str()).unwrap();
+        println!("{:?}", status);
+
         assert!(a == b);
     }
 
@@ -316,8 +203,6 @@ mod tests {
     #[test]
     fn parse_charging() {
         let charging = parse(CHARGHING_STR).unwrap();
-
-        println!("{}", serde_json::to_string_pretty(&charging).unwrap());
 
         assert_eq!(
             charging,
