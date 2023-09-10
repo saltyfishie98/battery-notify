@@ -5,32 +5,25 @@ mod acpi;
 fn main() {
     env_logger::init();
 
-    let res = match acpi::call() {
+    let current = match acpi::call() {
         Some(out) => out,
         None => todo!(),
     };
 
-    let old_res = match acpi::from_file() {
+    let json_str = serde_json::to_string_pretty(&current).unwrap();
+
+    let old = match acpi::from_file() {
         Some(out) => out,
         None => {
-            match acpi::log_to_file(&res) {
+            match acpi::log_to_file(&json_str) {
                 Ok(_) => (),
                 Err(e) => log::error!("{}", e),
             };
-            res.clone()
-        }
-    };
 
-    let old = match acpi::parse(&old_res) {
-        Ok(out) => out,
-        Err(_) => todo!(),
-    };
-
-    let current = match acpi::parse(&res) {
-        Ok(out) => out,
-        Err(_) => {
-            log::error!("Error parsing current acpi data");
-            return;
+            match acpi::call() {
+                Some(out) => out,
+                None => todo!(),
+            }
         }
     };
 
@@ -38,7 +31,7 @@ fn main() {
         && current.percent <= 20
         && current.status == (acpi::ChargeStatus::Discharging { time_remain: None })
     {
-        match acpi::log_to_file(&res) {
+        match acpi::log_to_file(&json_str) {
             Ok(_) => (),
             Err(_) => log::error!("acpi.rs resource error!"),
         };
@@ -63,7 +56,7 @@ fn main() {
     }
 
     if current.status != old.status {
-        match acpi::log_to_file(&res) {
+        match acpi::log_to_file(&json_str) {
             Ok(_) => (),
             Err(_) => log::error!("acpi.rs resource error!"),
         };

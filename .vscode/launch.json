@@ -15,7 +15,7 @@
                 "args": [
                     "build",
                     "--bin=battery-notify",
-                    "--package=battery-notify"
+                    "--package=battery-notify",
                 ],
                 "filter": {
                     "name": "battery-notify",
