@@ -97,6 +97,7 @@ pub struct BatteryNotification {
     current: BatteryData,
     cached: BatteryData,
     battery_low_percent: u32,
+    battery_id: usize,
 }
 
 pub struct Config {
@@ -106,17 +107,19 @@ pub struct Config {
 
 impl BatteryNotification {
     pub fn new(config: Config) -> Self {
-        let current = match helper::get(config.battery_id as usize) {
+        let battery_id = config.battery_id as usize;
+
+        let current = match helper::get(battery_id) {
             Some(out) => out,
             None => panic!(),
         };
 
         let current_json = serde_json::to_string_pretty(&current).unwrap();
 
-        let cached = match helper::cached() {
+        let cached = match helper::cached(battery_id) {
             Some(out) => out,
             None => {
-                match helper::log_to_file(&current_json) {
+                match helper::log_to_file(&current_json, battery_id) {
                     Ok(_) => (),
                     Err(e) => log::error!("{}", e),
                 };
@@ -136,6 +139,7 @@ impl BatteryNotification {
             current,
             cached,
             battery_low_percent: config.battery_low_percent,
+            battery_id,
         }
     }
 
@@ -144,7 +148,7 @@ impl BatteryNotification {
             && self.current.percent <= self.battery_low_percent
             && self.current.status == (ChargeStatus::Discharging { time_remain: None })
         {
-            match helper::log_to_file(&self.current_json) {
+            match helper::log_to_file(&self.current_json, self.battery_id) {
                 Ok(_) => (),
                 Err(_) => log::error!("acpi.rs resource error!"),
             };
@@ -154,6 +158,8 @@ impl BatteryNotification {
             let batt_low_notify = batt_low_command.args([
                 "-u",
                 "critical",
+                "-t",
+                "5000",
                 "Battery Low",
                 format!("Battery charge at {}%!", self.current.percent).as_str(),
             ]);
@@ -169,7 +175,7 @@ impl BatteryNotification {
         }
 
         if self.current.status != self.cached.status {
-            match helper::log_to_file(&self.current_json) {
+            match helper::log_to_file(&self.current_json, self.battery_id) {
                 Ok(_) => (),
                 Err(_) => log::error!("acpi.rs resource error!"),
             };
@@ -177,8 +183,12 @@ impl BatteryNotification {
             let mut charging_command = Command::new("notify-send");
 
             if self.current.status == (ChargeStatus::Charging { time_remain: None }) {
-                let charging_notify = charging_command
-                    .args(["Battery Status Update", "The battery has started charging!"]);
+                let charging_notify = charging_command.args([
+                    "-t",
+                    "2000",
+                    "Battery Status Update",
+                    "The battery has started charging!",
+                ]);
 
                 match charging_notify.status() {
                     Ok(res) => {
@@ -193,8 +203,12 @@ impl BatteryNotification {
             if self.current.status == (ChargeStatus::Discharging { time_remain: None })
                 || self.current.status == ChargeStatus::NotCharging
             {
-                let charging_notify = charging_command
-                    .args(["Battery Status Update", "The battery has stopped charging!"]);
+                let charging_notify = charging_command.args([
+                    "-t",
+                    "1500",
+                    "Battery Status Update",
+                    "The battery has stopped charging!",
+                ]);
 
                 match charging_notify.status() {
                     Ok(res) => {
@@ -212,25 +226,23 @@ impl BatteryNotification {
 mod helper {
     use super::*;
 
-    #[cfg(not(debug_assertions))]
-    pub fn cache_path() -> String {
+    pub fn cache_path(id: usize) -> String {
+        #[cfg(debug_assertions)]
+        let path = format!("./cache/battery_{}.json", id);
+
+        #[cfg(not(debug_assertions))]
         let path = format!(
-            "{}/.cache/battery-notify/cache.json",
-            std::env::var("HOME").unwrap()
+            "{}/.cache/battery-notify/battery_{}.json",
+            std::env::var("HOME").unwrap(),
+            id
         );
+
         log::debug!("cache path: {}", path);
         path
     }
 
-    #[cfg(debug_assertions)]
-    pub fn cache_path() -> String {
-        let path = "./cache/data.json".to_string();
-        log::debug!("cache path: {}", path);
-        path
-    }
-
-    pub fn log_to_file(data: &str) -> std::io::Result<()> {
-        let path_str = helper::cache_path();
+    pub fn log_to_file(data: &str, id: usize) -> std::io::Result<()> {
+        let path_str = helper::cache_path(id);
         let path = std::path::Path::new(path_str.as_str());
 
         if !path.exists() {
@@ -257,8 +269,8 @@ mod helper {
         Ok(())
     }
 
-    pub fn cached() -> Option<BatteryData> {
-        let path_str = helper::cache_path();
+    pub fn cached(id: usize) -> Option<BatteryData> {
+        let path_str = helper::cache_path(id);
         let path = std::path::Path::new(path_str.as_str());
 
         match std::fs::metadata(path) {
