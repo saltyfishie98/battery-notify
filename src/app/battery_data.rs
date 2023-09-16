@@ -7,6 +7,16 @@ pub struct BatteryData {
     pub status: ChargeStatus,
 }
 
+impl Default for BatteryData {
+    fn default() -> Self {
+        Self {
+            battery_id: Default::default(),
+            percent: Default::default(),
+            status: Default::default(),
+        }
+    }
+}
+
 impl std::fmt::Display for BatteryData {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let front = |status: &str| -> String {

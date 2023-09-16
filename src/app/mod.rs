@@ -3,7 +3,7 @@ use std::{io::Write, process::Command};
 mod battery_data;
 mod charge_status;
 
-use battery_data::BatteryData;
+pub use battery_data::BatteryData;
 use charge_status::ChargeStatus;
 
 pub fn setup_logging() {
