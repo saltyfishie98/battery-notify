@@ -6,7 +6,8 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
-use tokio::sync::mpsc::{channel, Receiver};
+use tokio::sync::mpsc;
+use tokio::sync::watch;
 
 mod battery;
 
@@ -33,6 +34,7 @@ impl State {
         }
     }
 
+    #[cfg(debug_assertions)]
     fn log_status(&self) -> impl Future<Output = ()> {
         let state_watcher = self.battery_state.clone();
         async move {
@@ -44,17 +46,26 @@ impl State {
         }
     }
 
-    fn make_percent_watcher(&self) -> impl Future<Output = notify::Result<()>> + '_ {
-        let percent_mutex = self.battery_state.clone();
+    fn make_percent_watcher(
+        &self,
+        status_recv: watch::Receiver<battery::ChargeStatus>,
+    ) -> (
+        watch::Receiver<u32>,
+        impl Future<Output = notify::Result<()>> + '_,
+    ) {
+        let (_tx, rx) = watch::channel(0);
 
-        async move {
+        (rx, async move {
+            let percent_mutex = self.battery_state.clone();
             let battery_percent_file = battery::percent_path(0);
             let percent_path = Path::new(battery_percent_file.as_str());
-            let (mut watcher, mut rx) = helper::watcher()?;
+            let (mut file_watcher, mut file_watcher_rx) = helper::file_watcher()?;
 
-            watcher.watch(percent_path.as_ref(), RecursiveMode::NonRecursive)?;
+            file_watcher.watch(percent_path.as_ref(), RecursiveMode::NonRecursive)?;
 
-            while let Some(res) = rx.recv().await {
+            while let Some(res) = file_watcher_rx.recv().await {
+                let mut status_recv_1 = status_recv.clone();
+
                 match res {
                     Ok(_) => {
                         let percent = battery::Battery::get_live_percent(0).unwrap();
@@ -64,15 +75,34 @@ impl State {
                         let low_battery = percent <= self.min_battery_percent;
 
                         if low_battery && !is_charging {
-                            if let Err(e) = Notification::new()
-                                .summary("battery-notify")
-                                .body(&format!("battery charge at {percent}%"))
-                                .hint(Hint::Transient(true))
-                                .urgency(notify_rust::Urgency::Critical)
-                                .show()
-                            {
-                                log::error!("percent notification error: {:?}", e);
-                            }
+                            // TODO: only one instance of battery low notification!
+                            log::debug!("new battery notification @ {percent}%");
+                            tokio::spawn(async move {
+                                match Notification::new()
+                                    .summary("battery-notify")
+                                    .body("battery charge is low!")
+                                    .hint(Hint::Transient(true))
+                                    .urgency(notify_rust::Urgency::Critical)
+                                    .timeout(Duration::from_millis(0))
+                                    .show()
+                                {
+                                    Ok(handle) => {
+                                        if let Err(e) = status_recv_1
+                                            .wait_for(|status| {
+                                                *status == battery::ChargeStatus::Charging
+                                            })
+                                            .await
+                                        {
+                                            log::error!("status receiver error: {:?}", e);
+                                        }
+                                        handle.close();
+                                        log::debug!("battery notification close!");
+                                    }
+                                    Err(e) => {
+                                        log::error!("percent notification error: {:?}", e);
+                                    }
+                                }
+                            });
                         }
 
                         battery_state.percent = percent;
@@ -82,21 +112,27 @@ impl State {
             }
 
             Ok(())
-        }
+        })
     }
 
-    fn make_status_watcher(&self) -> impl Future<Output = notify::Result<()>> + '_ {
-        let status_mutex = self.battery_state.clone();
+    fn make_status_watcher(
+        &self,
+    ) -> (
+        watch::Receiver<battery::ChargeStatus>,
+        impl Future<Output = notify::Result<()>> + '_,
+    ) {
+        let (tx, rx) = watch::channel(battery::ChargeStatus::Unknown);
 
-        async move {
-            let (mut watcher, mut rx) = helper::watcher()?;
+        (rx, async move {
+            let status_mutex = self.battery_state.clone();
+            let (mut file_watcher, mut file_watcher_rx) = helper::file_watcher()?;
 
             let battery_status_file = battery::status_path(0);
             let status_path = Path::new(battery_status_file.as_str());
 
-            watcher.watch(status_path.as_ref(), RecursiveMode::NonRecursive)?;
+            file_watcher.watch(status_path.as_ref(), RecursiveMode::NonRecursive)?;
 
-            while let Some(res) = rx.recv().await {
+            while let Some(res) = file_watcher_rx.recv().await {
                 match res {
                     Ok(_) => {
                         let new_status = battery::Battery::get_live_status(0).unwrap();
@@ -105,6 +141,10 @@ impl State {
                         if new_status != battery_state.status {
                             match new_status {
                                 battery::ChargeStatus::Charging => {
+                                    if let Err(e) = tx.send(battery::ChargeStatus::Charging) {
+                                        log::error!("status sender error: {}", e);
+                                    }
+
                                     if let Err(e) = Notification::new()
                                         .summary("battery-notify")
                                         .body("The battery has started charging!")
@@ -112,11 +152,15 @@ impl State {
                                         .show()
                                     {
                                         log::error!("status notification error: {:?}", e);
-                                    };
+                                    }
                                 }
 
                                 battery::ChargeStatus::Discharging
                                 | battery::ChargeStatus::NotCharging => {
+                                    if let Err(e) = tx.send(battery::ChargeStatus::NotCharging) {
+                                        log::error!("status watch channel error: {}", e);
+                                    }
+
                                     if let Err(e) = Notification::new()
                                         .summary("battery-notify")
                                         .body("The battery has stopped charging!")
@@ -124,10 +168,14 @@ impl State {
                                         .show()
                                     {
                                         log::error!("status notification error: {:?}", e);
-                                    };
+                                    }
                                 }
 
                                 battery::ChargeStatus::Unknown => {
+                                    if let Err(e) = tx.send(battery::ChargeStatus::Charging) {
+                                        log::error!("status watch channel error: {}", e);
+                                    }
+
                                     if let Err(e) = Notification::new()
                                         .summary("battery-notify")
                                         .body("The battery status is currently unknown!")
@@ -135,7 +183,7 @@ impl State {
                                         .show()
                                     {
                                         log::error!("status notification error: {:?}", e);
-                                    };
+                                    }
                                 }
                             };
                         }
@@ -148,7 +196,7 @@ impl State {
             }
 
             Ok(())
-        }
+        })
     }
 }
 
@@ -162,10 +210,10 @@ async fn main() {
 async fn run_watchers() {
     let battery_state = State::new(StateConfigs::default());
 
-    let (a, b) = tokio::join!(
-        battery_state.make_percent_watcher(),
-        battery_state.make_status_watcher(),
-    );
+    let (status_rx, status_watch) = battery_state.make_status_watcher();
+    let (_, percent_watch) = battery_state.make_percent_watcher(status_rx);
+
+    let (a, b) = tokio::join!(percent_watch, status_watch);
 
     a.unwrap();
     b.unwrap();
@@ -175,11 +223,11 @@ async fn run_watchers() {
 async fn run_watchers() {
     let battery_state = State::new(StateConfigs { min: 60 });
 
-    let (a, b, _) = tokio::join!(
-        battery_state.make_percent_watcher(),
-        battery_state.make_status_watcher(),
-        battery_state.log_status(),
-    );
+    let (status_rx, status_watch) = battery_state.make_status_watcher();
+    let (_, percent_watch) = battery_state.make_percent_watcher(status_rx);
+
+    // let (a, b, _) = tokio::join!(percent_watch, status_watch, battery_state.log_status());
+    let (a, b) = tokio::join!(percent_watch, status_watch);
 
     a.unwrap();
     b.unwrap();
@@ -188,8 +236,8 @@ async fn run_watchers() {
 mod helper {
     use super::*;
 
-    pub fn watcher() -> notify::Result<(PollWatcher, Receiver<notify::Result<Event>>)> {
-        let (tx, rx) = channel(10);
+    pub fn file_watcher() -> notify::Result<(PollWatcher, mpsc::Receiver<notify::Result<Event>>)> {
+        let (tx, rx) = mpsc::channel(10);
 
         let watcher = PollWatcher::new(
             move |res| {
@@ -199,7 +247,7 @@ mod helper {
             },
             Config::default()
                 .with_compare_contents(true)
-                .with_poll_interval(Duration::from_millis(1500)),
+                .with_poll_interval(Duration::from_millis(2000)),
         )?;
 
         Ok((watcher, rx))
@@ -207,7 +255,7 @@ mod helper {
 
     #[allow(dead_code)]
     pub async fn async_watch<P: AsRef<Path>>(path: P) -> notify::Result<()> {
-        let (mut watcher, mut rx) = watcher()?;
+        let (mut watcher, mut rx) = file_watcher()?;
 
         watcher.watch(path.as_ref(), RecursiveMode::NonRecursive)?;
 
@@ -261,7 +309,7 @@ mod helper {
                     record.args(),
                 )
             })
-            .filter_level(log::LevelFilter::Info)
+            .filter_level(log::LevelFilter::Warn)
             .parse_env("LOG_LEVEL")
             .init();
 

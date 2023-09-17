@@ -134,7 +134,7 @@ impl Default for Batteries {
             .filter(|s| !s.is_empty())
             .collect();
 
-        log::debug!("battery directories: {:?}", batt_dirs);
+        log::info!("battery directories: {:?}", batt_dirs);
 
         let mut entries: Vec<Battery> = batt_dirs
             .into_iter()
@@ -168,7 +168,7 @@ impl Default for Batteries {
             }
         });
 
-        log::debug!("batteries data: {:?}", entries);
+        log::info!("default batteries data: {:?}", entries);
 
         Self { entry: entries }
     }
