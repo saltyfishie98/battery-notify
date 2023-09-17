@@ -11,7 +11,7 @@ pub fn status_path(id: u32) -> String {
     format!("{POWER_SUPPLY_PATH}/BAT{id}/status")
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum ChargeStatus {
     Charging,
     Discharging,
