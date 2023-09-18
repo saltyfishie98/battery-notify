@@ -9,7 +9,7 @@
             "request": "launch",
             "name": "Debug executable 'battery-notify'",
             "env": {
-                "RUST_LOG": "debug"
+                "LOG_LEVEL": "debug"
             },
             "cargo": {
                 "args": [
