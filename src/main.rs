@@ -35,6 +35,7 @@ impl State {
     }
 
     #[cfg(debug_assertions)]
+    #[allow(dead_code)]
     fn log_status(&self) -> impl Future<Output = ()> {
         let state_watcher = self.battery_state.clone();
         async move {
