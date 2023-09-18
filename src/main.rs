@@ -49,33 +49,36 @@ impl State {
     fn make_percent_watcher(
         &self,
         status_recv: watch::Receiver<battery::ChargeStatus>,
-    ) -> (
-        watch::Receiver<u32>,
-        impl Future<Output = notify::Result<()>> + '_,
-    ) {
-        let (_tx, rx) = watch::channel(0);
-
-        (rx, async move {
+    ) -> impl Future<Output = notify::Result<()>> + '_ {
+        async move {
             let percent_mutex = self.battery_state.clone();
             let battery_percent_file = battery::percent_path(0);
             let percent_path = Path::new(battery_percent_file.as_str());
             let (mut file_watcher, mut file_watcher_rx) = helper::file_watcher()?;
+            let done = Arc::new(Mutex::new(false));
 
             file_watcher.watch(percent_path.as_ref(), RecursiveMode::NonRecursive)?;
 
             while let Some(res) = file_watcher_rx.recv().await {
-                let mut status_recv_1 = status_recv.clone();
-
                 match res {
                     Ok(_) => {
+                        let mut status_recv_1 = status_recv.clone();
                         let percent = battery::Battery::get_live_percent(0).unwrap();
                         let mut battery_state = percent_mutex.lock().unwrap();
 
                         let is_charging = battery_state.status == battery::ChargeStatus::Charging;
                         let low_battery = percent <= self.min_battery_percent;
 
-                        if low_battery && !is_charging {
-                            // TODO: only one instance of battery low notification!
+                        let done_notif = done.clone();
+
+                        let is_done = *done.lock().unwrap();
+
+                        if low_battery && !is_charging && !is_done {
+                            {
+                                let mut has_done = done_notif.lock().unwrap();
+                                *has_done = true;
+                            }
+
                             log::debug!("new battery notification @ {percent}%");
                             tokio::spawn(async move {
                                 match Notification::new()
@@ -97,6 +100,9 @@ impl State {
                                         }
                                         handle.close();
                                         log::debug!("battery notification close!");
+
+                                        let mut has_done = done_notif.lock().unwrap();
+                                        *has_done = false;
                                     }
                                     Err(e) => {
                                         log::error!("percent notification error: {:?}", e);
@@ -112,7 +118,7 @@ impl State {
             }
 
             Ok(())
-        })
+        }
     }
 
     fn make_status_watcher(
@@ -224,7 +230,7 @@ async fn run_watchers() {
     let battery_state = State::new(StateConfigs { min: 60 });
 
     let (status_rx, status_watch) = battery_state.make_status_watcher();
-    let (_, percent_watch) = battery_state.make_percent_watcher(status_rx);
+    let percent_watch = battery_state.make_percent_watcher(status_rx);
 
     // let (a, b, _) = tokio::join!(percent_watch, status_watch, battery_state.log_status());
     let (a, b) = tokio::join!(percent_watch, status_watch);
