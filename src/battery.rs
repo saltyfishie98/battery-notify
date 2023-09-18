@@ -59,13 +59,13 @@ impl Battery {
             }
         };
 
-        match string_from_file.replace("\n", "").parse::<u32>() {
-            Ok(out) => return Ok(out),
+        match string_from_file.replace('\n', "").parse::<u32>() {
+            Ok(out) => Ok(out),
             Err(err) => {
                 log::error!("error: {err}");
                 panic!();
             }
-        };
+        }
     }
 
     pub fn get_live_status(id: u32) -> Result<ChargeStatus, BatteryError> {
@@ -84,7 +84,7 @@ impl Battery {
             }
         };
 
-        Ok(string_from_file.replace("\n", "").as_str().into())
+        Ok(string_from_file.replace('\n', "").as_str().into())
     }
 }
 
@@ -142,7 +142,6 @@ impl Default for Batteries {
                 let re = Regex::new(r"\d+").unwrap();
                 let id: u32 = re
                     .find_iter(&path_string)
-                    .into_iter()
                     .map(|id_string| id_string.as_str().parse::<u32>().unwrap())
                     .next()
                     .unwrap();
@@ -158,15 +157,7 @@ impl Default for Batteries {
             })
             .collect();
 
-        entries.sort_by(|a, b| {
-            if a.id < b.id {
-                std::cmp::Ordering::Less
-            } else if a.id > b.id {
-                std::cmp::Ordering::Greater
-            } else {
-                std::cmp::Ordering::Equal
-            }
-        });
+        entries.sort_by(|a, b| a.id.cmp(&b.id));
 
         log::info!("default batteries data: {:?}", entries);
 
