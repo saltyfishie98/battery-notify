@@ -80,7 +80,7 @@ impl State {
                         log::debug!("new battery notification @ {percent}%");
                         tokio::spawn(async move {
                             match Notification::new()
-                                .summary("battery-notify")
+                                .summary(&format!("{}", helper::prog_name().unwrap()))
                                 .body("battery charge is low!")
                                 .hint(Hint::Transient(true))
                                 .urgency(notify_rust::Urgency::Critical)
@@ -149,7 +149,7 @@ impl State {
                                     }
 
                                     if let Err(e) = Notification::new()
-                                        .summary("battery-notify")
+                                        .summary(&format!("{}", helper::prog_name().unwrap()))
                                         .body("The battery has started charging!")
                                         .hint(Hint::Transient(true))
                                         .show()
@@ -158,15 +158,29 @@ impl State {
                                     }
                                 }
 
-                                battery::ChargeStatus::Discharging
-                                | battery::ChargeStatus::NotCharging => {
+                                battery::ChargeStatus::Discharging => {
                                     if let Err(e) = tx.send(battery::ChargeStatus::NotCharging) {
                                         log::error!("status watch channel error: {}", e);
                                     }
 
                                     if let Err(e) = Notification::new()
-                                        .summary("battery-notify")
+                                        .summary(&format!("{}", helper::prog_name().unwrap()))
                                         .body("The battery has stopped charging!")
+                                        .hint(Hint::Transient(true))
+                                        .show()
+                                    {
+                                        log::error!("status notification error: {:?}", e);
+                                    }
+                                }
+
+                                battery::ChargeStatus::NotCharging => {
+                                    if let Err(e) = tx.send(battery::ChargeStatus::NotCharging) {
+                                        log::error!("status watch channel error: {}", e);
+                                    }
+
+                                    if let Err(e) = Notification::new()
+                                        .summary(&format!("{}", helper::prog_name().unwrap()))
+                                        .body("The battery is fully charged!")
                                         .hint(Hint::Transient(true))
                                         .show()
                                     {
@@ -180,7 +194,7 @@ impl State {
                                     }
 
                                     if let Err(e) = Notification::new()
-                                        .summary("battery-notify")
+                                        .summary(&format!("{}", helper::prog_name().unwrap()))
                                         .body("The battery status is currently unknown!")
                                         .hint(Hint::Transient(true))
                                         .show()
@@ -254,6 +268,16 @@ mod helper {
         )?;
 
         Ok((watcher, rx))
+    }
+
+    pub fn prog_name() -> Option<String> {
+        Some(
+            std::env::current_exe()
+                .ok()?
+                .file_name()?
+                .to_string_lossy()
+                .to_string(),
+        )
     }
 
     #[allow(dead_code)]
