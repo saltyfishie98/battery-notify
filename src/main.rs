@@ -26,13 +26,21 @@ impl Default for StateConfigs {
 struct State {
     battery_state: Arc<Mutex<battery::Battery>>,
     min_battery_percent: u32,
+    start_charge_percent: u32,
+    start_charge_time: chrono::DateTime<chrono::Local>,
 }
 
 impl State {
     fn new(config: StateConfigs) -> Self {
         State {
-            battery_state: Arc::new(Mutex::new(battery::Batteries::default().entry.remove(0))),
+            battery_state: Arc::new(Mutex::new(
+                battery::Batteries::default()
+                    .entry
+                    .remove(BATTERY_ID as usize),
+            )),
             min_battery_percent: config.min,
+            start_charge_percent: battery::Battery::get_live_percent(BATTERY_ID).unwrap(),
+            start_charge_time: chrono::Local::now(),
         }
     }
 
@@ -54,14 +62,9 @@ async fn make_percent_watcher(
     state: Arc<Mutex<State>>,
     status_recv: watch::Receiver<battery::ChargeStatus>,
 ) -> notify::Result<()> {
-    let data;
+    log::debug!("started percent watcher!");
 
-    {
-        data = state.lock().unwrap();
-    }
-
-    let percent_mutex = data.battery_state.clone();
-    let battery_percent_file = battery::percent_path(0);
+    let battery_percent_file = battery::percent_path(BATTERY_ID);
     let percent_path = Path::new(battery_percent_file.as_str());
     let done = Arc::new(Mutex::new(false));
 
@@ -71,7 +74,10 @@ async fn make_percent_watcher(
     while let Some(res) = file_watcher_rx.recv().await {
         match res {
             Ok(_) => {
-                let percent = battery::Battery::get_live_percent(0).unwrap();
+                let data = state.lock().unwrap();
+                let percent_mutex = data.battery_state.clone();
+
+                let percent = battery::Battery::get_live_percent(BATTERY_ID).unwrap();
                 let mut battery_state = percent_mutex.lock().unwrap();
                 let is_charging = battery_state.status == battery::ChargeStatus::Charging;
                 let low_battery = percent <= data.min_battery_percent;
@@ -79,6 +85,8 @@ async fn make_percent_watcher(
                 let mut status_recv_1 = status_recv.clone();
                 let done_notif = done.clone();
                 let is_done = *done.lock().unwrap();
+
+                log::debug!("battery percent update: {percent}%");
 
                 if low_battery && !is_charging && !is_done {
                     {
@@ -101,10 +109,24 @@ async fn make_percent_watcher(
                         sink.sleep_until_end();
                     });
 
+                    let start_percent = data.start_charge_percent;
+                    let charge_duration =
+                        chrono::Local::now().signed_duration_since(data.start_charge_time);
+
+                    let duration_str = format!(
+                        "{:02}:{:02}:{:02}",
+                        charge_duration.num_hours(),
+                        charge_duration.num_minutes(),
+                        charge_duration.num_seconds()
+                    );
+
                     tokio::spawn(async move {
                         match Notification::new()
                             .summary(&format!("{}", helper::prog_name().unwrap()))
-                            .body("battery charge is low!")
+                            .body(&format!(
+                                "battery charge is low!\nduration from {}% : T-{}",
+                                start_percent, duration_str
+                            ))
                             .hint(Hint::Transient(true))
                             .urgency(notify_rust::Urgency::Critical)
                             .timeout(Duration::from_millis(0))
@@ -150,16 +172,11 @@ fn make_status_watcher(
     let (tx, rx) = watch::channel(battery::ChargeStatus::Unknown);
 
     (rx, async move {
-        let data;
+        log::debug!("started status watcher!");
 
-        {
-            data = state.lock().unwrap();
-        }
-
-        let status_mutex = data.battery_state.clone();
         let (mut file_watcher, mut file_watcher_rx) = helper::file_watcher()?;
 
-        let battery_status_file = battery::status_path(0);
+        let battery_status_file = battery::status_path(BATTERY_ID);
         let status_path = Path::new(battery_status_file.as_str());
 
         file_watcher.watch(status_path.as_ref(), RecursiveMode::NonRecursive)?;
@@ -167,12 +184,20 @@ fn make_status_watcher(
         while let Some(res) = file_watcher_rx.recv().await {
             match res {
                 Ok(_) => {
-                    let new_status = battery::Battery::get_live_status(0).unwrap();
+                    let new_status = battery::Battery::get_live_status(BATTERY_ID).unwrap();
+
+                    let mut data = state.lock().unwrap();
+                    let status_mutex = data.battery_state.clone();
+
                     let mut battery_state = status_mutex.lock().unwrap();
 
                     if new_status != battery_state.status {
                         match new_status {
                             battery::ChargeStatus::Charging => {
+                                data.start_charge_time = chrono::Local::now();
+                                data.start_charge_percent =
+                                    battery::Battery::get_live_percent(BATTERY_ID).unwrap();
+
                                 if let Err(e) = tx.send(battery::ChargeStatus::Charging) {
                                     log::error!("status sender error: {}", e);
                                 }
@@ -283,6 +308,8 @@ const PLUG_SOUND: &[u8] =
 const LOW_BATT_SOUND: &[u8] =
     std::include_bytes!("/home/saltyfishie/.local/share/sounds/big_sur/Funk.wav");
 
+const BATTERY_ID: u32 = 0;
+
 #[tokio::main]
 async fn main() {
     helper::setup_logging();
@@ -291,32 +318,21 @@ async fn main() {
 
 #[cfg(not(debug_assertions))]
 async fn run_watchers() {
-    let battery_state = State::new(StateConfigs::default());
-
-    let (status_rx, status_watch) = battery_state.make_status_watcher();
-    let percent_watch = battery_state.make_percent_watcher(status_rx);
-
-    let (a, b) = tokio::join!(percent_watch, status_watch);
-
-    a.unwrap();
-    b.unwrap();
+    let battery_state = Arc::new(Mutex::new(State::new(StateConfigs::default())));
+    let (status_rx, status_watch) = make_status_watcher(battery_state.clone());
+    let percent_watch = make_percent_watcher(battery_state, status_rx);
+    let (_, _) = tokio::join!(percent_watch, status_watch);
 }
 
 #[cfg(debug_assertions)]
 async fn run_watchers() {
-    let battery_state = State::new(StateConfigs { min: 60 });
+    let battery_state = Arc::new(Mutex::new(State::new(StateConfigs { min: 60 })));
 
-    let shared_state_0 = Arc::new(Mutex::new(battery_state));
-    let shared_state_1 = shared_state_0.clone();
+    let (status_rx, status_watch) = make_status_watcher(battery_state.clone());
+    let percent_watch = make_percent_watcher(battery_state, status_rx);
 
-    let (status_rx, status_watch) = make_status_watcher(shared_state_0);
-    let percent_watch = make_percent_watcher(shared_state_1, status_rx);
-
-    // let (a, b, _) = tokio::join!(percent_watch, status_watch, battery_state.log_status());
-    let (a, b) = tokio::join!(percent_watch, status_watch);
-
-    a.unwrap();
-    b.unwrap();
+    // let (_, _, _) = tokio::join!(percent_watch, status_watch, battery_state.log_status());
+    let (_, _) = tokio::join!(percent_watch, status_watch);
 }
 
 mod helper {
