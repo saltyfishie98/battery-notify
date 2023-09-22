@@ -110,15 +110,14 @@ async fn make_percent_watcher(
                     });
 
                     let start_percent = data.start_charge_percent;
-                    let charge_duration =
+                    let duration =
                         chrono::Local::now().signed_duration_since(data.start_charge_time);
 
-                    let duration_str = format!(
-                        "{:02}:{:02}:{:02}",
-                        charge_duration.num_hours(),
-                        charge_duration.num_minutes(),
-                        charge_duration.num_seconds()
-                    );
+                    let seconds = duration.num_seconds() % 60;
+                    let minutes = (duration.num_seconds() / 60) % 60;
+                    let hours = (duration.num_seconds() / 60) / 60;
+
+                    let duration_str = format!("{:02}:{:02}:{:02}", hours, minutes, seconds);
 
                     tokio::spawn(async move {
                         match Notification::new()
