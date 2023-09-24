@@ -20,8 +20,8 @@ const LOW_BATT_SOUND: &[u8] =
 #[cfg(not(debug_assertions))]
 async fn run_watchers() {
     let battery_state = Arc::new(Mutex::new(AppState::new(AppStateConfigs::default())));
-    let (status_rx, status_watch) = make_status_watcher(battery_state.clone());
-    let percent_watch = make_percent_watcher(battery_state, status_rx);
+    let (status_rx, status_watch) = watcher::make_status_watcher(battery_state.clone());
+    let percent_watch = watcher::make_percent_watcher(battery_state, status_rx);
     let (_, _) = tokio::join!(percent_watch, status_watch);
 }
 
