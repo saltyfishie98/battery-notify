@@ -193,10 +193,6 @@ fn make_status_watcher(
                     if new_status != battery_state.status {
                         match new_status {
                             battery::ChargeStatus::Charging => {
-                                data.start_charge_time = chrono::Local::now();
-                                data.start_charge_percent =
-                                    battery::Battery::get_live_percent(BATTERY_ID).unwrap();
-
                                 if let Err(e) = tx.send(battery::ChargeStatus::Charging) {
                                     log::error!("status sender error: {}", e);
                                 }
@@ -229,6 +225,10 @@ fn make_status_watcher(
                                 if let Err(e) = tx.send(battery::ChargeStatus::NotCharging) {
                                     log::error!("status watch channel error: {}", e);
                                 }
+
+                                data.start_charge_time = chrono::Local::now();
+                                data.start_charge_percent =
+                                    battery::Battery::get_live_percent(BATTERY_ID).unwrap();
 
                                 if let Err(e) = Notification::new()
                                     .summary(&format!("{}", helper::prog_name().unwrap()))
