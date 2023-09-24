@@ -43,26 +43,23 @@ impl State {
             start_charge_time: chrono::Local::now(),
         }
     }
+}
 
-    // #[cfg(debug_assertions)]
-    // #[allow(dead_code)]
-    // fn log_status(&self) -> impl Future<Output = ()> {
-    //     let state_watcher = self.battery_state.clone();
-    //     async move {
-    //         loop {
-    //             let duration = tokio::time::Duration::from_secs(2);
-    //             log::info!("latest battery state: {:?}", state_watcher.lock().unwrap());
-    //             tokio::time::sleep(duration).await;
-    //         }
-    //     }
-    // }
+async fn play_sound(byte_data: &'static [u8], amplification: f32) {
+    let (_stream, handle) = rodio::OutputStream::try_default().unwrap();
+    let sink = rodio::Sink::try_new(&handle).unwrap();
+    let cursor = Cursor::new(byte_data);
+    let sound = rodio::Decoder::new(cursor).unwrap().amplify(amplification);
+
+    sink.append(sound);
+    sink.sleep_until_end();
 }
 
 async fn make_percent_watcher(
     state: Arc<Mutex<State>>,
     status_recv: watch::Receiver<battery::ChargeStatus>,
 ) -> notify::Result<()> {
-    log::debug!("started percent watcher!");
+    log::debug!("percent watcher started!");
 
     let battery_percent_file = battery::percent_path(BATTERY_ID);
     let percent_path = Path::new(battery_percent_file.as_str());
@@ -89,26 +86,6 @@ async fn make_percent_watcher(
                 log::debug!("battery percent update: {percent}%");
 
                 if low_battery && !is_charging && !is_done {
-                    {
-                        let mut has_done = done_notif.lock().unwrap();
-                        *has_done = true;
-                    }
-
-                    log::debug!("low battery notification @ {percent}%");
-
-                    // TODO: maybe cache the sink?
-                    tokio::spawn(async {
-                        let (_stream, handle) = rodio::OutputStream::try_default().unwrap();
-                        let sink = rodio::Sink::try_new(&handle).unwrap();
-
-                        let cursor_0 = Cursor::new(LOW_BATT_SOUND);
-
-                        let unplug = rodio::Decoder::new(cursor_0).unwrap().amplify(5.0);
-
-                        sink.append(unplug);
-                        sink.sleep_until_end();
-                    });
-
                     let start_percent = data.start_charge_percent;
                     let duration =
                         chrono::Local::now().signed_duration_since(data.start_charge_time);
@@ -116,8 +93,15 @@ async fn make_percent_watcher(
                     let seconds = duration.num_seconds() % 60;
                     let minutes = (duration.num_seconds() / 60) % 60;
                     let hours = (duration.num_seconds() / 60) / 60;
-
                     let duration_str = format!("{:02}:{:02}:{:02}", hours, minutes, seconds);
+
+                    log::debug!("low battery notification @ {percent}%");
+                    tokio::spawn(play_sound(LOW_BATT_SOUND, 5.0));
+
+                    {
+                        let mut has_done = done_notif.lock().unwrap();
+                        *has_done = true;
+                    }
 
                     tokio::spawn(async move {
                         match Notification::new()
@@ -171,7 +155,7 @@ fn make_status_watcher(
     let (tx, rx) = watch::channel(battery::ChargeStatus::Unknown);
 
     (rx, async move {
-        log::debug!("started status watcher!");
+        log::debug!("status watcher started!");
 
         let (mut file_watcher, mut file_watcher_rx) = helper::file_watcher()?;
 
@@ -206,19 +190,7 @@ fn make_status_watcher(
                                     log::error!("status notification error: {:?}", e);
                                 }
 
-                                // TODO: maybe cache the sink?
-                                tokio::spawn(async {
-                                    let (_stream, handle) =
-                                        rodio::OutputStream::try_default().unwrap();
-                                    let sink = rodio::Sink::try_new(&handle).unwrap();
-
-                                    let cursor_1 = Cursor::new(PLUG_SOUND);
-
-                                    let plug = rodio::Decoder::new(cursor_1).unwrap().amplify(3.0);
-
-                                    sink.append(plug);
-                                    sink.sleep_until_end();
-                                });
+                                tokio::spawn(play_sound(PLUG_SOUND, 3.0));
                             }
 
                             battery::ChargeStatus::Discharging => {
@@ -239,20 +211,7 @@ fn make_status_watcher(
                                     log::error!("status notification error: {:?}", e);
                                 }
 
-                                // TODO: maybe cache the sink?
-                                tokio::spawn(async {
-                                    let (_stream, handle) =
-                                        rodio::OutputStream::try_default().unwrap();
-                                    let sink = rodio::Sink::try_new(&handle).unwrap();
-
-                                    let cursor_0 = Cursor::new(UNPLUG_SOUND);
-
-                                    let unplug =
-                                        rodio::Decoder::new(cursor_0).unwrap().amplify(5.0);
-
-                                    sink.append(unplug);
-                                    sink.sleep_until_end();
-                                });
+                                tokio::spawn(play_sound(UNPLUG_SOUND, 5.0));
                             }
 
                             battery::ChargeStatus::NotCharging => {
