@@ -3,7 +3,7 @@ mod helper;
 mod watcher;
 
 use clap::Parser;
-use std::{rc::Rc, sync::RwLock};
+use std::{cell::RefCell, rc::Rc};
 use watcher::WatcherState;
 
 const UNPLUG_SOUND: &[u8] =
@@ -32,16 +32,16 @@ async fn main() {
     let batt_id = args.battery_id;
 
     #[cfg(not(debug_assertions))]
-    let battery_state = Rc::new(RwLock::new(WatcherState::new(args)));
+    let watcher_state = Rc::new(RefCell::new(WatcherState::new(args)));
 
     #[cfg(debug_assertions)]
-    let battery_state = Rc::new(RwLock::new(WatcherState::new(UserArgs {
+    let watcher_state = Rc::new(RefCell::new(WatcherState::new(UserArgs {
         battery_id: batt_id,
         low_battery_percent: 100,
     })));
 
-    let (status_rx, status_watch) = watcher::make_status_watcher(batt_id, battery_state.clone());
-    let percent_watch = watcher::make_percent_watcher(batt_id, battery_state, status_rx);
+    let (status_rx, status_watch) = watcher::make_status_watcher(batt_id, watcher_state.clone());
+    let percent_watch = watcher::make_percent_watcher(batt_id, watcher_state, status_rx);
 
     let (_, _) = tokio::join!(percent_watch, status_watch);
 }

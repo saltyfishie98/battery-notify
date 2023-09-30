@@ -4,6 +4,7 @@ use crate::{LOW_BATT_SOUND, PLUG_SOUND, UNPLUG_SOUND};
 use notify::{RecursiveMode, Watcher};
 use notify_rust::{Hint, Notification};
 use rodio::Source;
+use std::cell::RefCell;
 use std::process::exit;
 use std::{future::Future, io::Cursor, path::Path, rc::Rc, sync::RwLock, time::Duration};
 use tokio::sync::watch;
@@ -67,7 +68,7 @@ impl WatcherState {
 
 pub async fn make_percent_watcher(
     batt_id: u32,
-    state: Rc<RwLock<WatcherState>>,
+    watcher_state_ptr: Rc<RefCell<WatcherState>>,
     status_recv: watch::Receiver<battery::ChargeStatus>,
 ) -> notify::Result<()> {
     log::trace!("percent watcher started!");
@@ -82,20 +83,16 @@ pub async fn make_percent_watcher(
     while let Some(res) = file_watcher_rx.recv().await {
         match res {
             Ok(_) => {
-                let is_charging;
-                let low_battery;
-                let start_percent;
-                let start_charge_time;
-                let battery_state_ptr;
                 let percent = battery::Battery::get_live_percent(batt_id).unwrap();
 
-                {
-                    let data = state.read().unwrap();
-                    low_battery = percent <= data.min_battery_percent;
-                    start_percent = data.start_charge_percent;
-                    start_charge_time = data.start_charge_time;
-                    battery_state_ptr = data.battery_state.clone();
+                let data = watcher_state_ptr.clone();
+                let low_battery = percent <= data.borrow().min_battery_percent;
+                let start_percent = data.borrow().start_charge_percent;
+                let start_charge_time = data.borrow().start_charge_time;
+                let battery_state_ptr = data.borrow().battery_state.clone();
 
+                let is_charging;
+                {
                     let battery_state = battery_state_ptr.read().unwrap();
                     is_charging = battery_state.status == battery::ChargeStatus::Charging;
                 }
@@ -167,7 +164,7 @@ pub async fn make_percent_watcher(
 
 pub fn make_status_watcher(
     batt_id: u32,
-    state: Rc<RwLock<WatcherState>>,
+    watcher_state_ptr: Rc<RefCell<WatcherState>>,
 ) -> (
     watch::Receiver<battery::ChargeStatus>,
     impl Future<Output = notify::Result<()>>,
@@ -177,24 +174,22 @@ pub fn make_status_watcher(
     (rx, async move {
         log::trace!("status watcher started!");
 
-        let (mut file_watcher, mut file_watcher_rx) = helper::file_watcher()?;
-
         let battery_status_file = battery::status_path(batt_id);
         let status_path = Path::new(battery_status_file.as_str());
 
+        let (mut file_watcher, mut file_watcher_rx) = helper::file_watcher()?;
         file_watcher.watch(status_path.as_ref(), RecursiveMode::NonRecursive)?;
 
         while let Some(res) = file_watcher_rx.recv().await {
             match res {
                 Ok(_) => {
-                    let old_status;
-                    let battery_state_ptr;
                     let new_status = battery::Battery::get_live_status(batt_id).unwrap();
 
-                    {
-                        let data = state.read().unwrap();
-                        battery_state_ptr = data.battery_state.clone();
+                    let data = watcher_state_ptr.clone();
+                    let battery_state_ptr = data.borrow().battery_state.clone();
 
+                    let old_status;
+                    {
                         let battery_state = battery_state_ptr.read().unwrap();
                         old_status = battery_state.status;
                     }
@@ -223,12 +218,9 @@ pub fn make_status_watcher(
                                     log::error!("status watch channel error: {}", e);
                                 }
 
-                                {
-                                    let mut data = state.write().unwrap();
-                                    data.start_charge_time = chrono::Local::now();
-                                    data.start_charge_percent =
-                                        battery::Battery::get_live_percent(batt_id).unwrap();
-                                }
+                                data.borrow_mut().start_charge_time = chrono::Local::now();
+                                data.borrow_mut().start_charge_percent =
+                                    battery::Battery::get_live_percent(batt_id).unwrap();
 
                                 if let Err(e) = Notification::new()
                                     .summary(&format!("{}", helper::prog_name().unwrap()))
