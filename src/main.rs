@@ -1,12 +1,10 @@
-mod app_state;
 mod battery;
 mod helper;
 mod watcher;
 
-use app_state::{AppState, AppStateConfigs};
-use std::sync::{Arc, Mutex};
-
-const BATTERY_ID: u32 = 0;
+use clap::Parser;
+use std::sync::{Arc, RwLock};
+use watcher::WatcherState;
 
 const UNPLUG_SOUND: &[u8] =
     std::include_bytes!("/home/saltyfishie/.local/share/sounds/big_sur/Bottle.wav");
@@ -17,27 +15,32 @@ const PLUG_SOUND: &[u8] =
 const LOW_BATT_SOUND: &[u8] =
     std::include_bytes!("/home/saltyfishie/.local/share/sounds/big_sur/Funk.wav");
 
-#[cfg(not(debug_assertions))]
-async fn run_watchers() {
-    let battery_state = Arc::new(Mutex::new(AppState::new(AppStateConfigs::default())));
-    let (status_rx, status_watch) = watcher::make_status_watcher(battery_state.clone());
-    let percent_watch = watcher::make_percent_watcher(battery_state, status_rx);
-    let (_, _) = tokio::join!(percent_watch, status_watch);
-}
+#[derive(Parser, Debug)]
+pub struct UserArgs {
+    #[arg(short = 'b', long = "batt", default_value_t = 0)]
+    pub battery_id: u32,
 
-#[cfg(debug_assertions)]
-async fn run_watchers() {
-    let battery_state = Arc::new(Mutex::new(AppState::new(AppStateConfigs { min: 60 })));
-
-    let (status_rx, status_watch) = watcher::make_status_watcher(battery_state.clone());
-    let percent_watch = watcher::make_percent_watcher(battery_state, status_rx);
-
-    // let (_, _, _) = tokio::join!(percent_watch, status_watch, battery_state.log_status());
-    let (_, _) = tokio::join!(percent_watch, status_watch);
+    #[arg(short = 'l', long = "low", default_value_t = 20)]
+    pub low_battery_percent: u32,
 }
 
 #[tokio::main]
 async fn main() {
     helper::setup_logging();
-    run_watchers().await;
+    let args = UserArgs::parse();
+
+    let batt_id = args.battery_id;
+
+    #[cfg(not(debug_assertions))]
+    let battery_state = Arc::new(RwLock::new(WatcherState::new(args)));
+
+    #[cfg(debug_assertions)]
+    let battery_state = Arc::new(RwLock::new(WatcherState::new(UserArgs {
+        battery_id: args.battery_id,
+        low_battery_percent: 100,
+    })));
+
+    let (status_rx, status_watch) = watcher::make_status_watcher(batt_id, battery_state.clone());
+    let percent_watch = watcher::make_percent_watcher(batt_id, battery_state, status_rx);
+    let (_, _) = tokio::join!(percent_watch, status_watch);
 }

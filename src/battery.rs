@@ -1,5 +1,5 @@
 use regex::Regex;
-use std::path::Path;
+use std::{path::Path, process::exit};
 
 const POWER_SUPPLY_PATH: &str = "/sys/class/power_supply";
 
@@ -54,7 +54,7 @@ impl Battery {
                     return Err(BatteryError::BatteryDoesNotExist);
                 } else {
                     log::error!("{:?}", e);
-                    panic!();
+                    exit(1);
                 }
             }
         };
@@ -63,7 +63,7 @@ impl Battery {
             Ok(out) => Ok(out),
             Err(err) => {
                 log::error!("error: {err}");
-                panic!();
+                exit(1);
             }
         }
     }
@@ -79,7 +79,7 @@ impl Battery {
                     return Err(BatteryError::BatteryDoesNotExist);
                 } else {
                     log::error!("{:?}", e);
-                    panic!();
+                    exit(1);
                 }
             }
         };
@@ -98,7 +98,7 @@ impl Default for Batteries {
             Ok(out) => out,
             Err(e) => {
                 log::error!("{}", e);
-                panic!()
+                exit(1);
             }
         };
 
@@ -108,7 +108,7 @@ impl Default for Batteries {
                     Ok(ent) => ent.path(),
                     Err(err) => {
                         log::error!("{}", err);
-                        panic!();
+                        exit(1);
                     }
                 };
 
@@ -116,7 +116,7 @@ impl Default for Batteries {
                     Some(out) => out.to_string_lossy().to_string(),
                     None => {
                         log::error!("Sys power supply directory is empty!");
-                        panic!();
+                        exit(1);
                     }
                 }
             })
@@ -134,7 +134,7 @@ impl Default for Batteries {
             .filter(|s| !s.is_empty())
             .collect();
 
-        log::info!("battery directories: {:?}", batt_dirs);
+        log::info!("Batteries: {:?}", batt_dirs);
 
         let mut entries: Vec<Battery> = batt_dirs
             .into_iter()
@@ -159,7 +159,7 @@ impl Default for Batteries {
 
         entries.sort_by(|a, b| a.id.cmp(&b.id));
 
-        log::info!("default batteries data: {:?}", entries);
+        log::debug!("default batteries data: {:?}", entries);
 
         Self { entry: entries }
     }

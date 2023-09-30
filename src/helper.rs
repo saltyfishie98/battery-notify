@@ -47,88 +47,38 @@ pub async fn async_watch<P: AsRef<Path>>(path: P) -> notify::Result<()> {
 }
 
 pub fn setup_logging() {
-    use env_logger::fmt::Color;
-    use std::io::Write;
-
     #[cfg(not(debug_assertions))]
-    env_logger::Builder::new()
-        .format(|buf, record| {
-            let mut error_style = buf.style();
-            error_style.set_color(Color::Red).set_bold(true);
-
-            let mut warn_style = buf.style();
-            warn_style.set_color(Color::Rgb(255, 140, 0)).set_bold(true);
-
-            let mut info_style = buf.style();
-            info_style.set_color(Color::Green).set_bold(true);
-
-            let mut debug_style = buf.style();
-            debug_style.set_color(Color::Yellow).set_bold(true);
-
-            let mut trace_style = buf.style();
-            trace_style.set_color(Color::White).set_bold(true);
-
-            let level = record.level();
-
-            let styled_level = match level {
-                log::Level::Error => error_style.value(level),
-                log::Level::Warn => warn_style.value(level),
-                log::Level::Info => info_style.value(level),
-                log::Level::Debug => debug_style.value(level),
-                log::Level::Trace => trace_style.value(level),
-            };
-
-            writeln!(
-                buf,
-                "[{} {}] (battery-notify): {}",
+    fern::Dispatch::new()
+        .format(|out, message, record| {
+            out.finish(format_args!(
+                "[{} {}] ({}): {}",
                 chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
-                styled_level,
-                record.args(),
-            )
+                record.level(),
+                prog_name().unwrap_or("saltyfishie".to_string()),
+                message
+            ))
         })
-        .filter_level(log::LevelFilter::Warn)
-        .parse_env("LOG_LEVEL")
-        .init();
+        .level(log::LevelFilter::Info)
+        .chain(std::io::stdout())
+        .apply()
+        .unwrap();
 
     #[cfg(debug_assertions)]
-    env_logger::Builder::new()
-        .format(|buf, record| {
-            let mut error_style = buf.style();
-            error_style.set_color(Color::Red).set_bold(true);
-
-            let mut warn_style = buf.style();
-            warn_style.set_color(Color::Rgb(255, 140, 0)).set_bold(true);
-
-            let mut info_style = buf.style();
-            info_style.set_color(Color::Green).set_bold(true);
-
-            let mut debug_style = buf.style();
-            debug_style.set_color(Color::Yellow).set_bold(true);
-
-            let mut trace_style = buf.style();
-            trace_style.set_color(Color::White).set_bold(true);
-
-            let level = record.level();
-
-            let styled_level = match level {
-                log::Level::Error => error_style.value(level),
-                log::Level::Warn => warn_style.value(level),
-                log::Level::Info => info_style.value(level),
-                log::Level::Debug => debug_style.value(level),
-                log::Level::Trace => trace_style.value(level),
-            };
-
-            writeln!(
-                buf,
-                "[{} {}] {}::{}:\n- {}\n",
+    fern::Dispatch::new()
+        .format(|out, message, record| {
+            out.finish(format_args!(
+                "[{} {}] {}::{}\n- {}\n",
                 chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
-                styled_level,
+                record.level(),
                 record.target(),
                 record.line().unwrap_or_default(),
-                record.args(),
-            )
+                message
+            ))
         })
-        .filter_level(log::LevelFilter::Debug)
-        .parse_env("LOG_LEVEL")
-        .init();
+        .level(log::LevelFilter::Trace)
+        .level_for("notify", log::LevelFilter::Info)
+        .level_for("mio", log::LevelFilter::Info)
+        .chain(std::io::stdout())
+        .apply()
+        .unwrap();
 }
