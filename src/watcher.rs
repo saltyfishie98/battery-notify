@@ -14,7 +14,7 @@ use std::{
 };
 use tokio::sync::watch;
 
-async fn play_sound(byte_data: &'static [u8], amplification: f32) {
+async fn play_embeded_sound(byte_data: &'static [u8], amplification: f32) {
     let (_stream, handle) = rodio::OutputStream::try_default().unwrap();
     let sink = rodio::Sink::try_new(&handle).unwrap();
     let cursor = Cursor::new(byte_data);
@@ -113,7 +113,7 @@ pub async fn make_percent_watcher(
                     let duration_str = format!("{:02}:{:02}:{:02}", hours, minutes, seconds);
 
                     log::debug!("low battery notification @ {percent}%");
-                    tokio::spawn(play_sound(LOW_BATT_SOUND, 5.0));
+                    tokio::spawn(play_embeded_sound(LOW_BATT_SOUND, 5.0));
 
                     {
                         let mut has_done = done_notif.write().unwrap();
@@ -208,7 +208,7 @@ pub fn make_status_watcher(
                                     log::error!("status notification error: {:?}", e);
                                 }
 
-                                tokio::spawn(play_sound(PLUG_SOUND, 3.0));
+                                tokio::spawn(play_embeded_sound(PLUG_SOUND, 3.0));
                             }
 
                             battery::ChargeStatus::Discharging => {
@@ -229,7 +229,7 @@ pub fn make_status_watcher(
                                     log::error!("status notification error: {:?}", e);
                                 }
 
-                                tokio::spawn(play_sound(UNPLUG_SOUND, 5.0));
+                                tokio::spawn(play_embeded_sound(UNPLUG_SOUND, 5.0));
                             }
 
                             battery::ChargeStatus::NotCharging => {

@@ -24,7 +24,7 @@ pub struct UserArgs {
     pub low_battery_percent: u32,
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() {
     helper::setup_logging();
     let args = UserArgs::parse();

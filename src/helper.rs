@@ -8,9 +8,12 @@ pub fn file_watcher() -> notify::Result<(PollWatcher, mpsc::Receiver<notify::Res
 
     let watcher = PollWatcher::new(
         move |res| {
-            tokio::runtime::Runtime::new().unwrap().block_on(async {
-                tx.send(res).await.unwrap();
-            });
+            tokio::runtime::Builder::new_current_thread()
+                .build()
+                .unwrap()
+                .block_on(async {
+                    tx.send(res).await.unwrap();
+                });
         },
         Config::default()
             .with_compare_contents(true)
@@ -78,6 +81,8 @@ pub fn setup_logging() {
         .level(log::LevelFilter::Trace)
         .level_for("notify", log::LevelFilter::Info)
         .level_for("mio", log::LevelFilter::Info)
+        .level_for("polling", log::LevelFilter::Info)
+        .level_for("async_io", log::LevelFilter::Info)
         .chain(std::io::stdout())
         .apply()
         .unwrap();
