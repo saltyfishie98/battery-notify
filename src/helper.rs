@@ -51,6 +51,25 @@ pub async fn async_watch<P: AsRef<Path>>(path: P) -> notify::Result<()> {
 
 pub fn setup_logging() {
     #[cfg(not(debug_assertions))]
+    let mut log_level = log::LevelFilter::Info;
+
+    #[cfg(debug_assertions)]
+    let mut log_level = log::LevelFilter::Trace;
+
+    if let Ok(txt) = std::env::var("LOGGING") {
+        let level_txt = txt.to_lowercase();
+
+        match level_txt.as_str() {
+            "error" => log_level = log::LevelFilter::Error,
+            "warn" => log_level = log::LevelFilter::Warn,
+            "info" => log_level = log::LevelFilter::Info,
+            "debug" => log_level = log::LevelFilter::Debug,
+            "trace" => log_level = log::LevelFilter::Trace,
+            _ => {}
+        }
+    }
+
+    #[cfg(not(debug_assertions))]
     fern::Dispatch::new()
         .format(|out, message, record| {
             out.finish(format_args!(
@@ -61,7 +80,7 @@ pub fn setup_logging() {
                 message
             ))
         })
-        .level(log::LevelFilter::Info)
+        .level(log_level)
         .chain(std::io::stdout())
         .apply()
         .unwrap();
@@ -78,7 +97,7 @@ pub fn setup_logging() {
                 message
             ))
         })
-        .level(log::LevelFilter::Trace)
+        .level(log_level)
         .level_for("notify", log::LevelFilter::Info)
         .level_for("mio", log::LevelFilter::Info)
         .level_for("polling", log::LevelFilter::Info)

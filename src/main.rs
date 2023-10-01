@@ -43,5 +43,5 @@ async fn main() {
     let (status_rx, status_watch) = watcher::make_status_watcher(batt_id, watcher_state.clone());
     let percent_watch = watcher::make_percent_watcher(batt_id, watcher_state, status_rx);
 
-    let (_, _) = tokio::join!(percent_watch, status_watch);
+    let _ = tokio::join!(percent_watch, status_watch);
 }
