@@ -1,5 +1,6 @@
 use notify::{Config, Event, PollWatcher, RecursiveMode, Watcher};
 use std::path::Path;
+use std::process::exit;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
@@ -85,6 +86,18 @@ pub fn setup_logging() {
         .level_for("mio", log::LevelFilter::Info)
         .level_for("polling", log::LevelFilter::Info)
         .level_for("async_io", log::LevelFilter::Info)
+        .chain(
+            match fern::log_file(format!(
+                "{}/.cache/battery-notify/logs.txt",
+                std::env::var("HOME").unwrap()
+            )) {
+                Ok(out) => out,
+                Err(e) => {
+                    eprintln!("{e}");
+                    exit(1);
+                }
+            },
+        )
         .chain(std::io::stdout())
         .apply()
         .unwrap();
@@ -106,6 +119,18 @@ pub fn setup_logging() {
         .level_for("mio", log::LevelFilter::Info)
         .level_for("polling", log::LevelFilter::Info)
         .level_for("async_io", log::LevelFilter::Info)
+        .chain(
+            match fern::log_file(format!(
+                "{}/.cache/battery-notify/debug-logs.txt",
+                std::env::var("HOME").unwrap()
+            )) {
+                Ok(out) => out,
+                Err(e) => {
+                    eprintln!("{e}");
+                    exit(1);
+                }
+            },
+        )
         .chain(std::io::stdout())
         .apply()
         .unwrap();

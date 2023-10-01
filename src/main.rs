@@ -4,7 +4,7 @@ mod notifier;
 
 use clap::Parser;
 use notifier::Notifier;
-use std::rc::Rc;
+use std::{process::exit, rc::Rc};
 
 const UNPLUG_SOUND: &[u8] =
     std::include_bytes!("/home/saltyfishie/.local/share/sounds/big_sur/Bottle.wav");
@@ -29,19 +29,29 @@ async fn main() {
     helper::setup_logging();
     let args = UserArgs::parse();
 
-    let batt_id = args.battery_id;
-
     #[cfg(not(debug_assertions))]
-    let watcher_state = Rc::new(RefCell::new(Notifier::new(args)));
+    let notifier = Rc::new(Notifier::new(&args));
 
     #[cfg(debug_assertions)]
-    let notifier = Rc::new(Notifier::new(UserArgs {
-        battery_id: batt_id,
+    let notifier = Rc::new(Notifier::new(&UserArgs {
+        battery_id: args.battery_id,
         low_battery_percent: 100,
     }));
 
     let status_watch = notifier.make_status_watcher();
     let percent_watch = notifier.make_percent_watcher();
 
-    let _ = tokio::join!(percent_watch, status_watch);
+    match battery::Battery::get_live_percent(args.battery_id) {
+        Ok(p) => {
+            let _ = tokio::join!(
+                percent_watch,
+                status_watch,
+                notifier.low_battery_notification(p)
+            );
+        }
+        Err(e) => {
+            log::error!("{:?}", e);
+            exit(1);
+        }
+    };
 }
