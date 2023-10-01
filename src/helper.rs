@@ -81,6 +81,10 @@ pub fn setup_logging() {
             ))
         })
         .level(log_level)
+        .level_for("notify", log::LevelFilter::Info)
+        .level_for("mio", log::LevelFilter::Info)
+        .level_for("polling", log::LevelFilter::Info)
+        .level_for("async_io", log::LevelFilter::Info)
         .chain(std::io::stdout())
         .apply()
         .unwrap();
@@ -92,7 +96,7 @@ pub fn setup_logging() {
                 "[{} {}] {}::{}\n- {}\n",
                 chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
                 record.level(),
-                record.target(),
+                record.file().unwrap(),
                 record.line().unwrap_or_default(),
                 message
             ))
